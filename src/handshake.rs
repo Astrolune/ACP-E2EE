@@ -138,13 +138,10 @@ fn verify_signature(
 }
 
 pub fn transcript_hash(client_hello_bytes: &[u8], server_hello_bytes: &[u8]) -> [u8; 32] {
-    let mut input = Vec::with_capacity(
-        "ACPv1/transcript".len() + client_hello_bytes.len() + server_hello_bytes.len(),
-    );
-    input.extend_from_slice(b"ACPv1/transcript");
+    let mut input = Vec::with_capacity(client_hello_bytes.len() + server_hello_bytes.len());
     input.extend_from_slice(client_hello_bytes);
     input.extend_from_slice(server_hello_bytes);
-    blake3::hash(&input).into()
+    blake3::derive_key("acp/v1/transcript", &input)
 }
 
 pub fn derive_root_key(shared_secret: [u8; 32], transcript_hash: [u8; 32]) -> [u8; 32] {

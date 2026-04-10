@@ -25,7 +25,7 @@ Current branch implements ACP v1 with:
 - `confirmation(32) = BLAKE3_derive_key("acp/v1/finish", session_key || transcript_hash)`
 
 Transcript hash is strictly:
-- `transcript_hash = BLAKE3("ACPv1/transcript" || ClientHello_bytes || ServerHello_bytes)`
+- `transcript_hash = BLAKE3_derive_key("acp/v1/transcript", ClientHello_bytes || ServerHello_bytes)`
 
 ### Data Frame
 

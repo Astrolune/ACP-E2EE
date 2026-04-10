@@ -196,3 +196,62 @@ fn tampered_ciphertext_returns_crypto_error() {
         acp_session_free(server);
     }
 }
+
+#[test]
+fn wrong_remote_verifying_key_fails_handshake_with_verify_error() {
+    unsafe {
+        let client = acp_session_new();
+        let server = acp_session_new();
+        assert!(!client.is_null());
+        assert!(!server.is_null());
+
+        let mut rng = OsRng;
+        let client_sk = SigningKey::generate(&mut rng);
+        let server_sk = SigningKey::generate(&mut rng);
+        let wrong_remote = SigningKey::generate(&mut rng);
+
+        // Client is intentionally configured with wrong expected server verifying key.
+        let client_secret = client_sk.to_bytes();
+        let wrong_server_pub = wrong_remote.verifying_key().to_bytes();
+        assert_eq!(
+            acp_session_set_local_signing_key(client, client_secret.as_ptr(), 32),
+            AcpResult::Ok
+        );
+        assert_eq!(
+            acp_session_set_remote_verifying_key(client, wrong_server_pub.as_ptr(), 32),
+            AcpResult::Ok
+        );
+
+        // Server has correct view of client key.
+        configure_peer(server, &server_sk, &client_sk);
+
+        let (init_res, client_hello) =
+            call_out(|out, out_len| acp_handshake_initiate(client, out, out_len));
+        assert_eq!(init_res, AcpResult::Ok);
+
+        let (resp_res, server_hello) = call_out(|out, out_len| {
+            acp_handshake_respond(
+                server,
+                client_hello.as_ptr(),
+                client_hello.len() as u32,
+                out,
+                out_len,
+            )
+        });
+        assert_eq!(resp_res, AcpResult::Ok);
+
+        let (client_res, _) = call_out(|out, out_len| {
+            acp_handshake_respond(
+                client,
+                server_hello.as_ptr(),
+                server_hello.len() as u32,
+                out,
+                out_len,
+            )
+        });
+        assert_eq!(client_res, AcpResult::VerifyFailed);
+
+        acp_session_free(client);
+        acp_session_free(server);
+    }
+}

@@ -300,10 +300,15 @@ impl AcpSession<Handshake> {
                 )?;
                 let shared = server_secret.diffie_hellman(&PublicKey::from(client_hello.ephemeral_pub));
                 let transcript = transcript_hash(input, &server_hello);
-                let root = derive_root_key(*shared.as_bytes(), transcript);
-                let session_key = derive_session_key(root);
+                let mut shared_bytes = *shared.as_bytes();
+                drop(shared);
+                let mut root = derive_root_key(shared_bytes, transcript);
+                shared_bytes.zeroize();
+                let mut session_key = derive_session_key(root);
                 let expected_confirmation = finish_confirmation(session_key, transcript);
                 let ratchet = SymmetricRatchet::from_root(root, SessionRole::Responder);
+                session_key.zeroize();
+                root.zeroize();
                 inner.progress = HandshakeProgress::ResponderAwaitFinish {
                     expected_confirmation,
                     ratchet,
@@ -324,14 +329,19 @@ impl AcpSession<Handshake> {
                 ensure_remote_key(server_hello.signer_pub, remote_key)?;
                 let shared = eph_secret.diffie_hellman(&PublicKey::from(server_hello.ephemeral_pub));
                 let transcript = transcript_hash(&client_hello, input);
-                let root = derive_root_key(*shared.as_bytes(), transcript);
-                let session_key = derive_session_key(root);
+                let mut shared_bytes = *shared.as_bytes();
+                drop(shared);
+                let mut root = derive_root_key(shared_bytes, transcript);
+                shared_bytes.zeroize();
+                let mut session_key = derive_session_key(root);
                 let confirmation = finish_confirmation(session_key, transcript);
                 let finish = build_client_finish(confirmation);
                 let established = AcpSession::<Established>::from_ratchet(SymmetricRatchet::from_root(
                     root,
                     SessionRole::Initiator,
                 ));
+                session_key.zeroize();
+                root.zeroize();
                 Ok(RespondOutcome::Established {
                     payload: finish,
                     session: established,
