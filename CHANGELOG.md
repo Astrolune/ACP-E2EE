@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-## [0.1.0] - 2026-04-11
+## [0.0.0] - 2026-04-11
 
 ### Added
 - Initial ACP v1 Rust `cdylib` implementation.
