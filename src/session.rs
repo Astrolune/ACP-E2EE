@@ -1,3 +1,7 @@
+// ya sam ne znaju kak nazvat' etot modul, session ili state_machine ili handshake_manager ili chto-to eshche
+// vsegda slozhno s imenovaniyem, no session eto kak-to obshche i ne ochen' tochno, state_machine chisto tekhnicheski
+// poymite, eto prosto modul s logikoy dlya upravleniya sostoyaniem seansa ACP, vklyuchaya ruki-podnyatiya i shifrovanie soobshcheniy posle ustanovki seansa. Ya reshil nazvat' ego session, potomu chto on predstavlyaet soboy abstraktsiy
+
 use crate::error::AcpError;
 use crate::frame::{Frame, ACP_VERSION, MAC_LEN, MSG_TYPE_DATA, NONCE_LEN};
 use crate::handshake::{
