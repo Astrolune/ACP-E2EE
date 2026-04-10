@@ -95,3 +95,5 @@ Includes:
 - No `ring`, no OpenSSL, no NIST curves.
 - Panics are trapped with `catch_unwind` at FFI boundary.
 - Key material is zeroized on drop where applicable.
+
+See [SECURITY.md](SECURITY.md) for vulnerability reporting.
