@@ -136,7 +136,7 @@ unsafe fn ensure_output_capacity(
     Ok(())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn acp_session_new() -> *mut AcpSessionOpaque {
     match catch_unwind(AssertUnwindSafe(|| -> Result<*mut AcpSessionOpaque, AcpError> {
         let boxed = Box::new(SessionHandle::new());
@@ -158,7 +158,7 @@ pub extern "C" fn acp_session_new() -> *mut AcpSessionOpaque {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn acp_session_free(session: *mut AcpSessionOpaque) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         if session.is_null() {
@@ -170,7 +170,7 @@ pub extern "C" fn acp_session_free(session: *mut AcpSessionOpaque) {
     }));
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn acp_session_set_local_signing_key(
     session: *mut AcpSessionOpaque,
     sk: *const u8,
@@ -185,7 +185,7 @@ pub extern "C" fn acp_session_set_local_signing_key(
     })
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn acp_session_set_remote_verifying_key(
     session: *mut AcpSessionOpaque,
     pk: *const u8,
@@ -200,7 +200,7 @@ pub extern "C" fn acp_session_set_remote_verifying_key(
     })
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn acp_handshake_initiate(
     session: *mut AcpSessionOpaque,
     out_payload: *mut u8,
@@ -218,7 +218,7 @@ pub extern "C" fn acp_handshake_initiate(
     })
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn acp_handshake_respond(
     session: *mut AcpSessionOpaque,
     input: *const u8,
@@ -240,7 +240,7 @@ pub extern "C" fn acp_handshake_respond(
     })
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn acp_handshake_finalize(
     session: *mut AcpSessionOpaque,
     input: *const u8,
@@ -255,7 +255,7 @@ pub extern "C" fn acp_handshake_finalize(
     })
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn acp_encrypt(
     session: *mut AcpSessionOpaque,
     pt: *const u8,
@@ -277,7 +277,7 @@ pub extern "C" fn acp_encrypt(
     })
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn acp_decrypt(
     session: *mut AcpSessionOpaque,
     ct: *const u8,
@@ -299,7 +299,7 @@ pub extern "C" fn acp_decrypt(
     })
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn acp_last_error(out: *mut u8, out_len: *mut u32) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         if out_len.is_null() {
@@ -323,3 +323,4 @@ pub extern "C" fn acp_last_error(out: *mut u8, out_len: *mut u32) {
         unsafe { *out_len = required };
     }));
 }
+

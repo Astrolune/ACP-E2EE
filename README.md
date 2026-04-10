@@ -22,7 +22,7 @@ Current branch implements ACP v1 with:
 3. `ClientFinish`
 
 `ClientFinish` carries:
-- `confirmation(32) = BLAKE3("ACPv1/finish" || session_key || transcript_hash)`
+- `confirmation(32) = BLAKE3_derive_key("acp/v1/finish", session_key || transcript_hash)`
 
 Transcript hash is strictly:
 - `transcript_hash = BLAKE3("ACPv1/transcript" || ClientHello_bytes || ServerHello_bytes)`
@@ -60,6 +60,10 @@ Additional key provisioning exports:
 Buffer contract:
 - two-call sizing (`NULL`/small output buffer returns `ACP_RESULT_BUFFER_TOO_SMALL` and required `out_len`)
 
+Handshake call semantics:
+- initiator flow: `acp_handshake_initiate` -> `acp_handshake_respond(ServerHello)` returns `ClientFinish` and transitions initiator to established
+- responder flow: `acp_handshake_respond(ClientHello)` returns `ServerHello`, then `acp_handshake_finalize(ClientFinish)` completes responder establishment
+
 ## Build
 
 ```bash
@@ -91,5 +95,3 @@ Includes:
 - No `ring`, no OpenSSL, no NIST curves.
 - Panics are trapped with `catch_unwind` at FFI boundary.
 - Key material is zeroized on drop where applicable.
-
-See [SECURITY.md](SECURITY.md) for vulnerability reporting.

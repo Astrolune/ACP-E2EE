@@ -73,15 +73,21 @@ namespace Acp.Interop
             }
         }
 
-        public void SetLocalSigningKey(byte[] secret32)
+        /// <summary>
+        /// Sets Ed25519 private seed (32 bytes). This maps to ed25519-dalek SigningKey::from_bytes(seed32).
+        /// </summary>
+        public void SetLocalSigningSeed(byte[] seed32)
         {
             EnsureNotDisposed();
-            if (secret32 == null || secret32.Length != 32)
+            if (seed32 == null || seed32.Length != 32)
             {
-                throw new ArgumentException("Signing key must be exactly 32 bytes.", nameof(secret32));
+                throw new ArgumentException("Signing seed must be exactly 32 bytes.", nameof(seed32));
             }
-            ThrowOnError(Native.acp_session_set_local_signing_key(_handle, secret32, 32));
+            ThrowOnError(Native.acp_session_set_local_signing_key(_handle, seed32, 32));
         }
+
+        [Obsolete("Use SetLocalSigningSeed(byte[] seed32).")]
+        public void SetLocalSigningKey(byte[] secret32) => SetLocalSigningSeed(secret32);
 
         public void SetRemoteVerifyingKey(byte[] public32)
         {

@@ -44,7 +44,7 @@ impl SymmetricRatchet {
         }
     }
 
-    pub fn next_send_key(&mut self) -> ([u8; 32], u64) {
+    pub fn next_send_key(&mut self) -> Result<([u8; 32], u64), AcpError> {
         let counter = self.next_send_counter;
         let mut input = Vec::with_capacity(40);
         input.extend_from_slice(self.send_chain.as_bytes());
@@ -55,8 +55,8 @@ impl SymmetricRatchet {
         self.next_send_counter = self
             .next_send_counter
             .checked_add(1)
-            .unwrap_or(self.next_send_counter);
-        (key, counter)
+            .ok_or(AcpError::InternalError("counter overflow"))?;
+        Ok((key, counter))
     }
 
     pub fn recv_key_for_counter(&mut self, counter: u64) -> Result<[u8; 32], AcpError> {
@@ -92,13 +92,13 @@ mod tests {
         let mut a = SymmetricRatchet::from_root(root, SessionRole::Initiator);
         let mut b = SymmetricRatchet::from_root(root, SessionRole::Initiator);
 
-        let (a1, c1) = a.next_send_key();
-        let (b1, c1b) = b.next_send_key();
+        let (a1, c1) = a.next_send_key().expect("a1");
+        let (b1, c1b) = b.next_send_key().expect("b1");
         assert_eq!(c1, 1);
         assert_eq!(c1b, 1);
         assert_eq!(a1, b1);
 
-        let (a2, c2) = a.next_send_key();
+        let (a2, c2) = a.next_send_key().expect("a2");
         assert_eq!(c2, 2);
         assert_ne!(a1, a2);
         assert_eq!(a.next_send_counter(), 3);
@@ -111,5 +111,14 @@ mod tests {
         let _ = recv.recv_key_for_counter(1).expect("first");
         let err = recv.recv_key_for_counter(3).expect_err("gap must fail");
         assert!(format!("{err}").contains("counter must equal"));
+    }
+
+    #[test]
+    fn send_counter_overflow_is_error() {
+        let root = [8u8; 32];
+        let mut r = SymmetricRatchet::from_root(root, SessionRole::Initiator);
+        r.next_send_counter = u64::MAX;
+        let err = r.next_send_key().expect_err("must overflow");
+        assert!(format!("{err}").contains("counter overflow"));
     }
 }

@@ -182,11 +182,10 @@ pub fn parse_client_finish(input: &[u8]) -> Result<[u8; 32], AcpError> {
 }
 
 pub fn finish_confirmation(session_key: [u8; 32], transcript_hash: [u8; 32]) -> [u8; 32] {
-    let mut input = Vec::with_capacity("ACPv1/finish".len() + 64);
-    input.extend_from_slice(b"ACPv1/finish");
+    let mut input = Vec::with_capacity(64);
     input.extend_from_slice(&session_key);
     input.extend_from_slice(&transcript_hash);
-    blake3::hash(&input).into()
+    blake3::derive_key("acp/v1/finish", &input)
 }
 
 fn client_hello_sig_input(client_ephemeral_pub: [u8; 32], client_signer_pub: [u8; 32]) -> Vec<u8> {

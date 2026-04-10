@@ -140,3 +140,59 @@ fn ffi_buffer_contract_and_invalid_args() {
         acp_session_free(session);
     }
 }
+
+#[test]
+fn tampered_ciphertext_returns_crypto_error() {
+    unsafe {
+        let client = acp_session_new();
+        let server = acp_session_new();
+        assert!(!client.is_null());
+        assert!(!server.is_null());
+
+        let mut rng = OsRng;
+        let client_sk = SigningKey::generate(&mut rng);
+        let server_sk = SigningKey::generate(&mut rng);
+        configure_peer(client, &client_sk, &server_sk);
+        configure_peer(server, &server_sk, &client_sk);
+
+        let (_, client_hello) = call_out(|out, out_len| acp_handshake_initiate(client, out, out_len));
+        let (_, server_hello) = call_out(|out, out_len| {
+            acp_handshake_respond(
+                server,
+                client_hello.as_ptr(),
+                client_hello.len() as u32,
+                out,
+                out_len,
+            )
+        });
+        let (_, client_finish) = call_out(|out, out_len| {
+            acp_handshake_respond(
+                client,
+                server_hello.as_ptr(),
+                server_hello.len() as u32,
+                out,
+                out_len,
+            )
+        });
+        assert_eq!(
+            acp_handshake_finalize(server, client_finish.as_ptr(), client_finish.len() as u32),
+            AcpResult::Ok
+        );
+
+        let msg = b"tamper-check";
+        let (enc_res, mut ct) = call_out(|out, out_len| {
+            acp_encrypt(client, msg.as_ptr(), msg.len() as u32, out, out_len)
+        });
+        assert_eq!(enc_res, AcpResult::Ok);
+        assert!(ct.len() > 38);
+        ct[38] ^= 0xFF;
+
+        let (tamper_res, _) = call_out(|out, out_len| {
+            acp_decrypt(server, ct.as_ptr(), ct.len() as u32, out, out_len)
+        });
+        assert_eq!(tamper_res, AcpResult::CryptoError);
+
+        acp_session_free(client);
+        acp_session_free(server);
+    }
+}

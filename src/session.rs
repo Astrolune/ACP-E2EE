@@ -110,6 +110,15 @@ impl SessionHandle {
         }
     }
 
+    /// Handles the second handshake leg for either role.
+    ///
+    /// Behavior by role/state:
+    /// - Responder in `Idle`: consumes `ClientHello` and returns `ServerHello`.
+    /// - Initiator in `InitiatorAwaitServer`: consumes `ServerHello`, derives keys,
+    ///   transitions to `Established`, and returns `ClientFinish`.
+    ///
+    /// Because the initiator final transition happens here, `handshake_finalize`
+    /// is only called by responders to verify `ClientFinish`.
     pub fn handshake_respond(&mut self, input: &[u8]) -> Result<Vec<u8>, AcpError> {
         match &mut self.state {
             SessionStateMachine::Handshake(s) => match s.respond(input)? {
@@ -418,7 +427,7 @@ impl AcpSession<Established> {
 
     fn encrypt(&mut self, plaintext: &[u8]) -> Result<Vec<u8>, AcpError> {
         let inner = self.established_inner_mut()?;
-        let (mut key, counter) = inner.ratchet.next_send_key();
+        let (mut key, counter) = inner.ratchet.next_send_key()?;
         let cipher =
             XChaCha20Poly1305::new_from_slice(&key).map_err(|_| AcpError::CryptoError("bad key"))?;
         let mut nonce = [0u8; NONCE_LEN];
