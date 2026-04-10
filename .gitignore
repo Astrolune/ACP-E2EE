@@ -1,0 +1,16 @@
+/target/
+
+# Rust (library crate)
+Cargo.lock
+
+# IDE / editor
+.idea/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# OS junk
+.DS_Store
+Thumbs.db
