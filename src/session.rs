@@ -1,7 +1,3 @@
-// ya sam ne znaju kak nazvat' etot modul, session ili state_machine ili handshake_manager ili chto-to eshche
-// vsegda slozhno s imenovaniyem, no session eto kak-to obshche i ne ochen' tochno, state_machine chisto tekhnicheski
-// poymite, eto prosto modul s logikoy dlya upravleniya sostoyaniem seansa ACP, vklyuchaya ruki-podnyatiya i shifrovanie soobshcheniy posle ustanovki seansa. Ya reshil nazvat' ego session, potomu chto on predstavlyaet soboy abstraktsiy
-
 use crate::error::AcpError;
 use crate::frame::{Frame, ACP_VERSION, MAC_LEN, MSG_TYPE_DATA, NONCE_LEN};
 use crate::handshake::{
@@ -91,7 +87,7 @@ impl SessionHandle {
         match &mut self.state {
             SessionStateMachine::Handshake(s) => s.set_local_signing_key(key),
             SessionStateMachine::Established(_) => {
-                Err(AcpError::InvalidState("cannot set signing key after handshake"))
+                Err(AcpError::invalid_state("cannot set signing key after handshake"))
             }
         }
     }
@@ -100,7 +96,7 @@ impl SessionHandle {
         match &mut self.state {
             SessionStateMachine::Handshake(s) => s.set_remote_verifying_key(key),
             SessionStateMachine::Established(_) => {
-                Err(AcpError::InvalidState("cannot set remote key after handshake"))
+                Err(AcpError::invalid_state("cannot set remote key after handshake"))
             }
         }
     }
@@ -109,7 +105,7 @@ impl SessionHandle {
         match &mut self.state {
             SessionStateMachine::Handshake(s) => s.initiate(),
             SessionStateMachine::Established(_) => {
-                Err(AcpError::InvalidState("session already established"))
+                Err(AcpError::invalid_state("session already established"))
             }
         }
     }
@@ -133,7 +129,7 @@ impl SessionHandle {
                 }
             },
             SessionStateMachine::Established(_) => {
-                Err(AcpError::InvalidState("session already established"))
+                Err(AcpError::invalid_state("session already established"))
             }
         }
     }
@@ -146,7 +142,7 @@ impl SessionHandle {
                 Ok(())
             }
             SessionStateMachine::Established(_) => {
-                Err(AcpError::InvalidState("session already established"))
+                Err(AcpError::invalid_state("session already established"))
             }
         }
     }
@@ -154,7 +150,7 @@ impl SessionHandle {
     pub fn encrypt(&mut self, plaintext: &[u8]) -> Result<Vec<u8>, AcpError> {
         match &mut self.state {
             SessionStateMachine::Handshake(_) => {
-                Err(AcpError::InvalidState("encrypt requires established session"))
+                Err(AcpError::invalid_state("encrypt requires established session"))
             }
             SessionStateMachine::Established(s) => s.encrypt(plaintext),
         }
@@ -163,7 +159,7 @@ impl SessionHandle {
     pub fn decrypt(&mut self, ciphertext: &[u8]) -> Result<Vec<u8>, AcpError> {
         match &mut self.state {
             SessionStateMachine::Handshake(_) => {
-                Err(AcpError::InvalidState("decrypt requires established session"))
+                Err(AcpError::invalid_state("decrypt requires established session"))
             }
             SessionStateMachine::Established(s) => s.decrypt(ciphertext),
         }
@@ -173,7 +169,7 @@ impl SessionHandle {
         match &self.state {
             SessionStateMachine::Handshake(s) => s.preview_initiate_len(),
             SessionStateMachine::Established(_) => {
-                Err(AcpError::InvalidState("session already established"))
+                Err(AcpError::invalid_state("session already established"))
             }
         }
     }
@@ -182,7 +178,7 @@ impl SessionHandle {
         match &self.state {
             SessionStateMachine::Handshake(s) => s.preview_respond_len(input),
             SessionStateMachine::Established(_) => {
-                Err(AcpError::InvalidState("session already established"))
+                Err(AcpError::invalid_state("session already established"))
             }
         }
     }
@@ -190,12 +186,12 @@ impl SessionHandle {
     pub fn preview_encrypt_len(&self, pt_len: usize) -> Result<usize, AcpError> {
         match &self.state {
             SessionStateMachine::Handshake(_) => {
-                Err(AcpError::InvalidState("encrypt requires established session"))
+                Err(AcpError::invalid_state("encrypt requires established session"))
             }
             SessionStateMachine::Established(_) => {
                 let payload_len =
-                    u32::try_from(pt_len).map_err(|_| AcpError::InvalidArgument("plaintext too large"))?;
-                Ok(crate::frame::HEADER_LEN + payload_len as usize + MAC_LEN)
+                    u32::try_from(pt_len).map_err(|_| AcpError::invalid_argument("plaintext too large"))?;
+                Ok(crate::frame::HEADER_LEN + crate::frame::NONCE_LEN + payload_len as usize + MAC_LEN)
             }
         }
     }
@@ -203,15 +199,15 @@ impl SessionHandle {
     pub fn preview_decrypt_len(&self, input: &[u8]) -> Result<usize, AcpError> {
         match &self.state {
             SessionStateMachine::Handshake(_) => {
-                Err(AcpError::InvalidState("decrypt requires established session"))
+                Err(AcpError::invalid_state("decrypt requires established session"))
             }
             SessionStateMachine::Established(_) => {
                 let frame = Frame::decode(input)?;
                 if frame.version != ACP_VERSION {
-                    return Err(AcpError::ParseError("unsupported frame version"));
+                    return Err(AcpError::parse_error("unsupported frame version"));
                 }
                 if frame.msg_type != MSG_TYPE_DATA {
-                    return Err(AcpError::ParseError("unexpected frame message type"));
+                    return Err(AcpError::parse_error("unexpected frame message type"));
                 }
                 Ok(frame.payload_len as usize)
             }
@@ -246,12 +242,12 @@ impl AcpSession<Handshake> {
     fn initiate(&mut self) -> Result<Vec<u8>, AcpError> {
         let inner = self.handshake_inner_mut()?;
         if !matches!(inner.progress, HandshakeProgress::Idle) {
-            return Err(AcpError::InvalidState("handshake already started"));
+            return Err(AcpError::invalid_state("handshake already started"));
         }
         let secret = inner
             .local_signing_secret
             .as_ref()
-            .ok_or(AcpError::InvalidState("local signing key not configured"))?;
+            .ok_or(AcpError::invalid_state("local signing key not configured"))?;
         let eph_secret = EphemeralSecret::random_from_rng(OsRng);
         let eph_pub = PublicKey::from(&eph_secret).to_bytes();
         let client_hello = build_client_hello(eph_pub, secret.as_bytes())?;
@@ -270,10 +266,10 @@ impl AcpSession<Handshake> {
     fn preview_initiate_len(&self) -> Result<usize, AcpError> {
         let inner = self.handshake_inner_ref()?;
         if !matches!(inner.progress, HandshakeProgress::Idle) {
-            return Err(AcpError::InvalidState("handshake already started"));
+            return Err(AcpError::invalid_state("handshake already started"));
         }
         if inner.local_signing_secret.is_none() {
-            return Err(AcpError::InvalidState("local signing key not configured"));
+            return Err(AcpError::invalid_state("local signing key not configured"));
         }
         Ok(CLIENT_HELLO_LEN)
     }
@@ -285,11 +281,11 @@ impl AcpSession<Handshake> {
             HandshakeProgress::Idle => {
                 let remote_key = inner
                     .remote_verifying_key
-                    .ok_or(AcpError::InvalidState("remote verifying key not configured"))?;
+                    .ok_or(AcpError::invalid_state("remote verifying key not configured"))?;
                 let secret = inner
                     .local_signing_secret
                     .as_ref()
-                    .ok_or(AcpError::InvalidState("local signing key not configured"))?;
+                    .ok_or(AcpError::invalid_state("local signing key not configured"))?;
                 let client_hello = parse_client_hello(input)?;
                 verify_client_hello(&client_hello)?;
                 ensure_remote_key(client_hello.signer_pub, remote_key)?;
@@ -327,7 +323,7 @@ impl AcpSession<Handshake> {
             } => {
                 let remote_key = inner
                     .remote_verifying_key
-                    .ok_or(AcpError::InvalidState("remote verifying key not configured"))?;
+                    .ok_or(AcpError::invalid_state("remote verifying key not configured"))?;
                 let server_hello = parse_server_hello(input)?;
                 verify_server_hello(&server_hello, client_ephemeral_pub, client_signer_pub)?;
                 ensure_remote_key(server_hello.signer_pub, remote_key)?;
@@ -353,7 +349,7 @@ impl AcpSession<Handshake> {
             }
             HandshakeProgress::ResponderAwaitFinish { .. } => {
                 inner.progress = progress;
-                Err(AcpError::InvalidState(
+                Err(AcpError::invalid_state(
                     "responder is waiting for client finish; call finalize",
                 ))
             }
@@ -365,22 +361,22 @@ impl AcpSession<Handshake> {
         match &inner.progress {
             HandshakeProgress::Idle => {
                 if inner.remote_verifying_key.is_none() {
-                    return Err(AcpError::InvalidState("remote verifying key not configured"));
+                    return Err(AcpError::invalid_state("remote verifying key not configured"));
                 }
                 if inner.local_signing_secret.is_none() {
-                    return Err(AcpError::InvalidState("local signing key not configured"));
+                    return Err(AcpError::invalid_state("local signing key not configured"));
                 }
                 parse_client_hello(input)?;
                 Ok(SERVER_HELLO_LEN)
             }
             HandshakeProgress::InitiatorAwaitServer { .. } => {
                 if inner.remote_verifying_key.is_none() {
-                    return Err(AcpError::InvalidState("remote verifying key not configured"));
+                    return Err(AcpError::invalid_state("remote verifying key not configured"));
                 }
                 parse_server_hello(input)?;
                 Ok(CLIENT_FINISH_LEN)
             }
-            HandshakeProgress::ResponderAwaitFinish { .. } => Err(AcpError::InvalidState(
+            HandshakeProgress::ResponderAwaitFinish { .. } => Err(AcpError::invalid_state(
                 "responder is waiting for client finish; call finalize",
             )),
         }
@@ -396,13 +392,13 @@ impl AcpSession<Handshake> {
             } => {
                 let got = parse_client_finish(input)?;
                 if got != expected_confirmation {
-                    return Err(AcpError::VerifyFailed("client finish confirmation mismatch"));
+                    return Err(AcpError::verify_failed("client finish confirmation mismatch"));
                 }
                 Ok(AcpSession::<Established>::from_ratchet(ratchet))
             }
             other => {
                 inner.progress = other;
-                Err(AcpError::InvalidState(
+                Err(AcpError::invalid_state(
                     "finalize is only valid for responder after sending server hello",
                 ))
             }
@@ -412,14 +408,14 @@ impl AcpSession<Handshake> {
     fn handshake_inner_mut(&mut self) -> Result<&mut HandshakeInner, AcpError> {
         match &mut self.inner {
             SessionInner::Handshake(inner) => Ok(inner),
-            SessionInner::Established(_) => Err(AcpError::InternalError("invalid typestate access")),
+            SessionInner::Established(_) => Err(AcpError::internal_error("invalid typestate access")),
         }
     }
 
     fn handshake_inner_ref(&self) -> Result<&HandshakeInner, AcpError> {
         match &self.inner {
             SessionInner::Handshake(inner) => Ok(inner),
-            SessionInner::Established(_) => Err(AcpError::InternalError("invalid typestate access")),
+            SessionInner::Established(_) => Err(AcpError::internal_error("invalid typestate access")),
         }
     }
 }
@@ -435,7 +431,7 @@ impl AcpSession<Established> {
     fn established_inner_mut(&mut self) -> Result<&mut EstablishedInner, AcpError> {
         match &mut self.inner {
             SessionInner::Established(inner) => Ok(inner),
-            SessionInner::Handshake(_) => Err(AcpError::InternalError("invalid typestate access")),
+            SessionInner::Handshake(_) => Err(AcpError::internal_error("invalid typestate access")),
         }
     }
 
@@ -443,12 +439,12 @@ impl AcpSession<Established> {
         let inner = self.established_inner_mut()?;
         let (mut key, counter) = inner.ratchet.next_send_key()?;
         let cipher =
-            XChaCha20Poly1305::new_from_slice(&key).map_err(|_| AcpError::CryptoError("bad key"))?;
+            XChaCha20Poly1305::new_from_slice(&key).map_err(|_| AcpError::crypto_error("bad key"))?;
         let mut nonce = [0u8; NONCE_LEN];
         OsRng.fill_bytes(&mut nonce);
         let mut ciphertext = plaintext.to_vec();
         let payload_len = u32::try_from(ciphertext.len())
-            .map_err(|_| AcpError::InvalidArgument("plaintext too large"))?;
+            .map_err(|_| AcpError::invalid_argument("plaintext too large"))?;
         let frame_stub = Frame {
             version: ACP_VERSION,
             msg_type: MSG_TYPE_DATA,
@@ -461,7 +457,7 @@ impl AcpSession<Established> {
         let aad = frame_stub.aad_bytes();
         let tag = cipher
             .encrypt_in_place_detached(XNonce::from_slice(&nonce), &aad, &mut ciphertext)
-            .map_err(|_| AcpError::CryptoError("encryption failure"))?;
+            .map_err(|_| AcpError::crypto_error("encryption failure"))?;
         key.zeroize();
         let frame = Frame {
             version: ACP_VERSION,
@@ -479,20 +475,20 @@ impl AcpSession<Established> {
         let inner = self.established_inner_mut()?;
         let frame = Frame::decode(input)?;
         if frame.version != ACP_VERSION {
-            return Err(AcpError::ParseError("unsupported frame version"));
+            return Err(AcpError::parse_error("unsupported frame version"));
         }
         if frame.msg_type != MSG_TYPE_DATA {
-            return Err(AcpError::ParseError("unexpected frame message type"));
+            return Err(AcpError::parse_error("unexpected frame message type"));
         }
         let mut key = inner.ratchet.recv_key_for_counter(frame.counter)?;
         let cipher =
-            XChaCha20Poly1305::new_from_slice(&key).map_err(|_| AcpError::CryptoError("bad key"))?;
+            XChaCha20Poly1305::new_from_slice(&key).map_err(|_| AcpError::crypto_error("bad key"))?;
         let aad = frame.aad_bytes();
         let mut plaintext = frame.ciphertext;
         let tag = Tag::from_slice(&frame.mac);
         cipher
             .decrypt_in_place_detached(XNonce::from_slice(&frame.nonce), &aad, &mut plaintext, tag)
-            .map_err(|_| AcpError::CryptoError("decryption failure"))?;
+            .map_err(|_| AcpError::crypto_error("decryption failure"))?;
         key.zeroize();
         Ok(plaintext)
     }
@@ -500,7 +496,7 @@ impl AcpSession<Established> {
 
 fn ensure_remote_key(got: [u8; 32], expected: [u8; 32]) -> Result<(), AcpError> {
     if got != expected {
-        return Err(AcpError::VerifyFailed(
+        return Err(AcpError::verify_failed(
             "peer signing key does not match configured remote key",
         ));
     }

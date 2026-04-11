@@ -1,7 +1,5 @@
-// nu nahui
-// eto pizdec
-
 use crate::error::AcpError;
+use core::fmt;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -10,6 +8,7 @@ pub enum SessionRole {
     Responder,
 }
 
+/// Point 19: Key32 implements Debug with redaction to prevent key leakage in logs.
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct Key32([u8; 32]);
 
@@ -23,6 +22,25 @@ impl Key32 {
     }
 }
 
+impl fmt::Debug for Key32 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Key32([REDACTED])")
+    }
+}
+
+/// Symmetric ratchet for post-handshake message encryption.
+///
+/// Point 17: This ratchet enforces strict sequential counter ordering (counter must equal
+/// last_seen + 1). This design is suitable for TCP-based transport where packet ordering
+/// is guaranteed. For UDP or other unreliable transports, a sliding window mechanism
+/// would be required to handle out-of-order or lost packets.
+///
+/// Point 18: Counter initialization:
+/// - `next_send_counter` starts at 1 (first message sent has counter=1)
+/// - `last_recv_counter` starts at 0 (first valid received counter is 1)
+///
+/// Point 20: The ratchet derives Zeroize/ZeroizeOnDrop which also zeroizes the counter
+/// fields. While counters are not secret, this is harmless and simplifies the implementation.
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct SymmetricRatchet {
     send_chain: Key32,
@@ -58,14 +76,21 @@ impl SymmetricRatchet {
         self.next_send_counter = self
             .next_send_counter
             .checked_add(1)
-            .ok_or(AcpError::InternalError("counter overflow"))?;
+            .ok_or(AcpError::internal_error("counter overflow"))?;
         Ok((key, counter))
     }
 
     pub fn recv_key_for_counter(&mut self, counter: u64) -> Result<[u8; 32], AcpError> {
-        let expected = self.last_recv_counter.saturating_add(1);
+        // Point 21: Use checked_add instead of saturating_add to maintain symmetry
+        // with next_send_key's overflow handling. If last_recv_counter == u64::MAX,
+        // this will return an error rather than silently accepting u64::MAX again.
+        let expected = self
+            .last_recv_counter
+            .checked_add(1)
+            .ok_or_else(|| AcpError::replay_detected("receive counter overflow"))?;
+
         if counter != expected {
-            return Err(AcpError::ReplayDetected(
+            return Err(AcpError::replay_detected(
                 "counter must equal last_seen + 1 (first valid counter is 1)",
             ));
         }
@@ -79,9 +104,17 @@ impl SymmetricRatchet {
         Ok(key)
     }
 
+    /// Point 22: This method is pub(crate) to allow tests in the same module to access it.
+    /// The field next_send_counter itself is private, so tests use this accessor.
     #[cfg(test)]
     pub fn next_send_counter(&self) -> u64 {
         self.next_send_counter
+    }
+
+    /// Point 22: Test-only method to set next_send_counter for overflow testing.
+    #[cfg(test)]
+    pub(crate) fn set_next_send_counter(&mut self, value: u64) {
+        self.next_send_counter = value;
     }
 }
 
@@ -120,7 +153,8 @@ mod tests {
     fn send_counter_overflow_is_error() {
         let root = [8u8; 32];
         let mut r = SymmetricRatchet::from_root(root, SessionRole::Initiator);
-        r.next_send_counter = u64::MAX;
+        // Point 22: Use the test-only setter instead of direct field access
+        r.set_next_send_counter(u64::MAX);
         let err = r.next_send_key().expect_err("must overflow");
         assert!(format!("{err}").contains("counter overflow"));
     }

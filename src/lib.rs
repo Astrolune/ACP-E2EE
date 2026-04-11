@@ -59,7 +59,7 @@ unsafe fn session_from_ptr_mut<'a>(
     session: *mut AcpSessionOpaque,
 ) -> Result<&'a mut SessionHandle, AcpError> {
     if session.is_null() {
-        return Err(AcpError::InvalidArgument("session is null"));
+        return Err(AcpError::invalid_argument("session is null"));
     }
     // SAFETY: caller provided a non-null pointer originating from `acp_session_new`.
     Ok(unsafe { &mut *(session as *mut SessionHandle) })
@@ -70,7 +70,7 @@ unsafe fn read_input<'a>(ptr_in: *const u8, len: u32) -> Result<&'a [u8], AcpErr
         return Ok(&[]);
     }
     if ptr_in.is_null() {
-        return Err(AcpError::InvalidArgument("input pointer is null"));
+        return Err(AcpError::invalid_argument("input pointer is null"));
     }
     // SAFETY: pointer validity is required by FFI contract and length has been checked.
     Ok(unsafe { slice::from_raw_parts(ptr_in, len as usize) })
@@ -78,10 +78,10 @@ unsafe fn read_input<'a>(ptr_in: *const u8, len: u32) -> Result<&'a [u8], AcpErr
 
 unsafe fn read_fixed_32(ptr_in: *const u8, len: u32, name: &'static str) -> Result<[u8; 32], AcpError> {
     if len != 32 {
-        return Err(AcpError::InvalidArgument(name));
+        return Err(AcpError::invalid_argument(name));
     }
     if ptr_in.is_null() {
-        return Err(AcpError::InvalidArgument(name));
+        return Err(AcpError::invalid_argument(name));
     }
     let mut out = [0u8; 32];
     // SAFETY: pointer validity and exact length were checked above.
@@ -91,9 +91,9 @@ unsafe fn read_fixed_32(ptr_in: *const u8, len: u32, name: &'static str) -> Resu
 
 unsafe fn write_output(out: *mut u8, out_len: *mut u32, data: &[u8]) -> Result<(), AcpError> {
     if out_len.is_null() {
-        return Err(AcpError::InvalidArgument("out_len is null"));
+        return Err(AcpError::invalid_argument("out_len is null"));
     }
-    let required = u32::try_from(data.len()).map_err(|_| AcpError::InternalError("output too large"))?;
+    let required = u32::try_from(data.len()).map_err(|_| AcpError::internal_error("output too large"))?;
     // SAFETY: out_len was checked for non-null above.
     let capacity = unsafe { *out_len as usize };
 
@@ -122,10 +122,10 @@ unsafe fn ensure_output_capacity(
     needed: usize,
 ) -> Result<(), AcpError> {
     if out_len.is_null() {
-        return Err(AcpError::InvalidArgument("out_len is null"));
+        return Err(AcpError::invalid_argument("out_len is null"));
     }
     let needed_u32 =
-        u32::try_from(needed).map_err(|_| AcpError::InternalError("output too large"))?;
+        u32::try_from(needed).map_err(|_| AcpError::internal_error("output too large"))?;
     // SAFETY: out_len was checked for non-null above.
     let capacity = unsafe { *out_len as usize };
     if out.is_null() || capacity < needed {
