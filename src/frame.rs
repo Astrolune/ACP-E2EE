@@ -24,7 +24,6 @@ impl Frame {
         header[1] = self.msg_type;
         header[2..10].copy_from_slice(&self.counter.to_le_bytes());
         header[10..34].copy_from_slice(&self.nonce);
-        // payload_len is explicitly little-endian.
         header[34..38].copy_from_slice(&self.payload_len.to_le_bytes());
         header
     }
