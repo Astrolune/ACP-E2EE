@@ -12,7 +12,24 @@ use rand_core::{OsRng, RngCore};
 use x25519_dalek::{EphemeralSecret, PublicKey};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+/// Wrapper for encryption keys that ensures zeroization on drop.
+#[derive(Zeroize, ZeroizeOnDrop)]
+struct EncryptionKey([u8; 32]);
+
+impl EncryptionKey {
+    fn new(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+/// Type-state marker for handshake phase.
 pub struct Handshake;
+
+/// Type-state marker for established session phase.
 pub struct Established;
 
 #[derive(Zeroize, ZeroizeOnDrop)]
@@ -28,6 +45,11 @@ impl Secret32 {
     }
 }
 
+/// Session with type-state tracking.
+///
+/// Note: This uses both type-state pattern (PhantomData<S>) and runtime enum
+/// (SessionInner). The type-state provides compile-time guarantees for internal
+/// methods, while SessionInner enables runtime state transitions through SessionHandle.
 pub struct AcpSession<S> {
     inner: SessionInner,
     _marker: core::marker::PhantomData<S>,
@@ -67,8 +89,12 @@ pub enum SessionStateMachine {
     Established(AcpSession<Established>),
 }
 
+/// Wrapper for the session state machine.
+///
+/// Note: The `state` field is private to prevent external code from breaking
+/// state invariants. Use `state()` and `state_mut()` accessors if needed.
 pub struct SessionHandle {
-    pub state: SessionStateMachine,
+    state: SessionStateMachine,
 }
 
 enum RespondOutcome {
@@ -81,6 +107,14 @@ impl SessionHandle {
         Self {
             state: SessionStateMachine::Handshake(AcpSession::<Handshake>::new()),
         }
+    }
+
+    pub fn state(&self) -> &SessionStateMachine {
+        &self.state
+    }
+
+    pub fn state_mut(&mut self) -> &mut SessionStateMachine {
+        &mut self.state
     }
 
     pub fn set_local_signing_key(&mut self, key: [u8; 32]) -> Result<(), AcpError> {
@@ -216,6 +250,10 @@ impl SessionHandle {
 }
 
 impl AcpSession<Handshake> {
+    /// Creates a new handshake session.
+    ///
+    /// Note: AcpSession<Established> does not have a `new()` constructor;
+    /// it can only be created via `from_ratchet()` after successful handshake.
     fn new() -> Self {
         Self {
             inner: SessionInner::Handshake(HandshakeInner {
@@ -421,6 +459,9 @@ impl AcpSession<Handshake> {
 }
 
 impl AcpSession<Established> {
+    /// Creates an established session from a ratchet.
+    ///
+    /// This is the only way to construct AcpSession<Established>.
     fn from_ratchet(ratchet: SymmetricRatchet) -> Self {
         Self {
             inner: SessionInner::Established(EstablishedInner { ratchet }),
@@ -437,9 +478,10 @@ impl AcpSession<Established> {
 
     fn encrypt(&mut self, plaintext: &[u8]) -> Result<Vec<u8>, AcpError> {
         let inner = self.established_inner_mut()?;
-        let (mut key, counter) = inner.ratchet.next_send_key()?;
+        let (key_bytes, counter) = inner.ratchet.next_send_key()?;
+        let key = EncryptionKey::new(key_bytes);
         let cipher =
-            XChaCha20Poly1305::new_from_slice(&key).map_err(|_| AcpError::crypto_error("bad key"))?;
+            XChaCha20Poly1305::new_from_slice(key.as_slice()).map_err(|_| AcpError::crypto_error("bad key"))?;
         let mut nonce = [0u8; NONCE_LEN];
         OsRng.fill_bytes(&mut nonce);
         let mut ciphertext = plaintext.to_vec();
@@ -458,7 +500,6 @@ impl AcpSession<Established> {
         let tag = cipher
             .encrypt_in_place_detached(XNonce::from_slice(&nonce), &aad, &mut ciphertext)
             .map_err(|_| AcpError::crypto_error("encryption failure"))?;
-        key.zeroize();
         let frame = Frame {
             version: ACP_VERSION,
             msg_type: MSG_TYPE_DATA,
@@ -480,25 +521,29 @@ impl AcpSession<Established> {
         if frame.msg_type != MSG_TYPE_DATA {
             return Err(AcpError::parse_error("unexpected frame message type"));
         }
-        let mut key = inner.ratchet.recv_key_for_counter(frame.counter)?;
+        let key_bytes = inner.ratchet.recv_key_for_counter(frame.counter)?;
+        let key = EncryptionKey::new(key_bytes);
         let cipher =
-            XChaCha20Poly1305::new_from_slice(&key).map_err(|_| AcpError::crypto_error("bad key"))?;
+            XChaCha20Poly1305::new_from_slice(key.as_slice()).map_err(|_| AcpError::crypto_error("bad key"))?;
         let aad = frame.aad_bytes();
         let mut plaintext = frame.ciphertext;
         let tag = Tag::from_slice(&frame.mac);
         cipher
             .decrypt_in_place_detached(XNonce::from_slice(&frame.nonce), &aad, &mut plaintext, tag)
             .map_err(|_| AcpError::crypto_error("decryption failure"))?;
-        key.zeroize();
         Ok(plaintext)
     }
 }
 
+/// Verifies that the peer's signing key matches the configured remote key.
+/// Uses constant-time comparison to prevent timing attacks.
 fn ensure_remote_key(got: [u8; 32], expected: [u8; 32]) -> Result<(), AcpError> {
-    if got != expected {
-        return Err(AcpError::verify_failed(
+    use subtle::ConstantTimeEq;
+    if got.ct_eq(&expected).into() {
+        Ok(())
+    } else {
+        Err(AcpError::verify_failed(
             "peer signing key does not match configured remote key",
-        ));
+        ))
     }
-    Ok(())
 }

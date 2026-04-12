@@ -75,6 +75,7 @@ namespace Acp.Interop
 
         /// <summary>
         /// Sets Ed25519 private seed (32 bytes). This maps to ed25519-dalek SigningKey::from_bytes(seed32).
+        /// The seed is zeroed after use for security.
         /// </summary>
         public void SetLocalSigningSeed(byte[] seed32)
         {
@@ -83,10 +84,18 @@ namespace Acp.Interop
             {
                 throw new ArgumentException("Signing seed must be exactly 32 bytes.", nameof(seed32));
             }
-            ThrowOnError(Native.acp_session_set_local_signing_key(_handle, seed32, 32));
+            try
+            {
+                ThrowOnError(Native.acp_session_set_local_signing_key(_handle, seed32, 32));
+            }
+            finally
+            {
+                // Zero the seed after use to prevent it from lingering in managed memory
+                Array.Clear(seed32, 0, seed32.Length);
+            }
         }
 
-        [Obsolete("Use SetLocalSigningSeed(byte[] seed32).")]
+        [Obsolete("Use SetLocalSigningSeed instead.")]
         public void SetLocalSigningKey(byte[] secret32) => SetLocalSigningSeed(secret32);
 
         public void SetRemoteVerifyingKey(byte[] public32)
@@ -139,6 +148,13 @@ namespace Acp.Interop
             );
         }
 
+        /// <summary>
+        /// Retrieves the last error message from the current thread.
+        ///
+        /// WARNING: This is thread-local. In async C# code, if a context switch occurs
+        /// between the FFI call and this method, the error may be lost or incorrect.
+        /// Always call this immediately after an error on the same thread.
+        /// </summary>
         public static string GetLastError()
         {
             uint len = 0;
@@ -191,6 +207,13 @@ namespace Acp.Interop
 
         private delegate AcpResult OutputCall(IntPtr buffer, ref uint len);
 
+        /// <summary>
+        /// Calls an FFI function that returns output via a buffer.
+        ///
+        /// WARNING: For stateful operations (handshake), this calls the FFI function twice:
+        /// once to probe size, once to get data. The Rust side protects against state
+        /// changes via ensure_output_capacity, but this pattern is inherently fragile.
+        /// </summary>
         private static byte[] CallWithOutput(OutputCall call)
         {
             uint len = 0;

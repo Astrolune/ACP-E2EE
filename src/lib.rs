@@ -1,5 +1,10 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
+//! ACP (Authenticated Channel Protocol) - FFI bindings for secure communication.
+//!
+//! This library provides C-compatible FFI functions for establishing encrypted
+//! sessions with forward secrecy and replay protection.
+
 pub mod error;
 pub mod frame;
 pub mod handshake;
@@ -18,6 +23,12 @@ pub struct AcpSessionOpaque {
     _private: [u8; 0],
 }
 
+// Thread-local storage for the last error message.
+//
+// Thread Safety: Each thread maintains its own error state. In async C# code,
+// if a context switch occurs between the FFI call and `GetLastError()`, the
+// error may be lost or incorrect. Callers should retrieve errors immediately
+// on the same thread.
 thread_local! {
     static LAST_ERROR: RefCell<String> = const { RefCell::new(String::new()) };
 }
@@ -89,6 +100,22 @@ unsafe fn read_fixed_32(ptr_in: *const u8, len: u32, name: &'static str) -> Resu
     Ok(out)
 }
 
+/// Writes data to an FFI output buffer.
+///
+/// # Safety
+/// - `out` must be valid for writes of `data.len()` bytes if non-null
+/// - `out_len` must be valid for reads and writes of a `u32`
+/// - Caller must ensure no data races on the output buffer
+///
+/// # Returns
+/// - `Ok(())` if data was written successfully
+/// - `Err(BufferTooSmall)` if buffer capacity is insufficient (sets `*out_len` to required size)
+/// - `Err(InvalidArgument)` if `out_len` is null
+///
+/// # Note
+/// The `out_len` parameter serves dual purpose:
+/// - Input: capacity of the output buffer
+/// - Output: actual bytes written (or required size on BufferTooSmall error)
 unsafe fn write_output(out: *mut u8, out_len: *mut u32, data: &[u8]) -> Result<(), AcpError> {
     if out_len.is_null() {
         return Err(AcpError::invalid_argument("out_len is null"));
@@ -116,6 +143,18 @@ unsafe fn write_output(out: *mut u8, out_len: *mut u32, data: &[u8]) -> Result<(
     Ok(())
 }
 
+/// Ensures output buffer has sufficient capacity without writing data.
+///
+/// This is used for "probe" calls to determine required buffer size before
+/// actual operations. Use `write_output` for the actual write.
+///
+/// # Safety
+/// - `out_len` must be valid for reads and writes of a `u32`
+/// - `out` must be valid for writes of `needed` bytes if non-null
+///
+/// # Returns
+/// - `Ok(())` if buffer has sufficient capacity
+/// - `Err(BufferTooSmall)` if capacity is insufficient (sets `*out_len` to required size)
 unsafe fn ensure_output_capacity(
     out: *mut u8,
     out_len: *mut u32,
@@ -299,6 +338,15 @@ pub extern "C" fn acp_decrypt(
     })
 }
 
+/// Retrieves the last error message from the current thread.
+///
+/// # Safety
+/// - `out_len` must be valid for reads and writes of a `u32`
+/// - `out` must be valid for writes of `*out_len` bytes if non-null
+///
+/// # Returns
+/// The error string is null-terminated. The `out_len` value includes the null byte.
+/// If the buffer is too small, `*out_len` is set to the required size (including null byte).
 #[unsafe(no_mangle)]
 pub extern "C" fn acp_last_error(out: *mut u8, out_len: *mut u32) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
