@@ -10,8 +10,10 @@ pub mod frame;
 pub mod handshake;
 pub mod ratchet;
 pub mod session;
+pub mod api;
 
 pub use crate::error::AcpResult;
+pub use api::AcpSession;
 use crate::error::AcpError;
 use crate::session::SessionHandle;
 use core::{ptr, slice};
@@ -23,12 +25,6 @@ pub struct AcpSessionOpaque {
     _private: [u8; 0],
 }
 
-// Thread-local storage for the last error message.
-//
-// Thread Safety: Each thread maintains its own error state. In async C# code,
-// if a context switch occurs between the FFI call and `GetLastError()`, the
-// error may be lost or incorrect. Callers should retrieve errors immediately
-// on the same thread.
 thread_local! {
     static LAST_ERROR: RefCell<String> = const { RefCell::new(String::new()) };
 }
@@ -72,7 +68,6 @@ unsafe fn session_from_ptr_mut<'a>(
     if session.is_null() {
         return Err(AcpError::invalid_argument("session is null"));
     }
-    // SAFETY: caller provided a non-null pointer originating from `acp_session_new`.
     Ok(unsafe { &mut *(session as *mut SessionHandle) })
 }
 
@@ -83,7 +78,6 @@ unsafe fn read_input<'a>(ptr_in: *const u8, len: u32) -> Result<&'a [u8], AcpErr
     if ptr_in.is_null() {
         return Err(AcpError::invalid_argument("input pointer is null"));
     }
-    // SAFETY: pointer validity is required by FFI contract and length has been checked.
     Ok(unsafe { slice::from_raw_parts(ptr_in, len as usize) })
 }
 
@@ -95,66 +89,32 @@ unsafe fn read_fixed_32(ptr_in: *const u8, len: u32, name: &'static str) -> Resu
         return Err(AcpError::invalid_argument(name));
     }
     let mut out = [0u8; 32];
-    // SAFETY: pointer validity and exact length were checked above.
     unsafe { ptr::copy_nonoverlapping(ptr_in, out.as_mut_ptr(), 32) };
     Ok(out)
 }
 
-/// Writes data to an FFI output buffer.
-///
-/// # Safety
-/// - `out` must be valid for writes of `data.len()` bytes if non-null
-/// - `out_len` must be valid for reads and writes of a `u32`
-/// - Caller must ensure no data races on the output buffer
-///
-/// # Returns
-/// - `Ok(())` if data was written successfully
-/// - `Err(BufferTooSmall)` if buffer capacity is insufficient (sets `*out_len` to required size)
-/// - `Err(InvalidArgument)` if `out_len` is null
-///
-/// # Note
-/// The `out_len` parameter serves dual purpose:
-/// - Input: capacity of the output buffer
-/// - Output: actual bytes written (or required size on BufferTooSmall error)
 unsafe fn write_output(out: *mut u8, out_len: *mut u32, data: &[u8]) -> Result<(), AcpError> {
     if out_len.is_null() {
         return Err(AcpError::invalid_argument("out_len is null"));
     }
     let required = u32::try_from(data.len()).map_err(|_| AcpError::internal_error("output too large"))?;
-    // SAFETY: out_len was checked for non-null above.
     let capacity = unsafe { *out_len as usize };
 
     if data.is_empty() {
-        // SAFETY: out_len was checked for non-null above.
         unsafe { *out_len = 0 };
         return Ok(());
     }
 
     if out.is_null() || capacity < data.len() {
-        // SAFETY: out_len was checked for non-null above.
         unsafe { *out_len = required };
         return Err(AcpError::BufferTooSmall(data.len()));
     }
 
-    // SAFETY: destination has sufficient capacity and both pointers are valid.
     unsafe { ptr::copy_nonoverlapping(data.as_ptr(), out, data.len()) };
-    // SAFETY: out_len was checked for non-null above.
     unsafe { *out_len = required };
     Ok(())
 }
 
-/// Ensures output buffer has sufficient capacity without writing data.
-///
-/// This is used for "probe" calls to determine required buffer size before
-/// actual operations. Use `write_output` for the actual write.
-///
-/// # Safety
-/// - `out_len` must be valid for reads and writes of a `u32`
-/// - `out` must be valid for writes of `needed` bytes if non-null
-///
-/// # Returns
-/// - `Ok(())` if buffer has sufficient capacity
-/// - `Err(BufferTooSmall)` if capacity is insufficient (sets `*out_len` to required size)
 unsafe fn ensure_output_capacity(
     out: *mut u8,
     out_len: *mut u32,
@@ -165,10 +125,8 @@ unsafe fn ensure_output_capacity(
     }
     let needed_u32 =
         u32::try_from(needed).map_err(|_| AcpError::internal_error("output too large"))?;
-    // SAFETY: out_len was checked for non-null above.
     let capacity = unsafe { *out_len as usize };
     if out.is_null() || capacity < needed {
-        // SAFETY: out_len was checked for non-null above.
         unsafe { *out_len = needed_u32 };
         return Err(AcpError::BufferTooSmall(needed));
     }
@@ -203,7 +161,6 @@ pub extern "C" fn acp_session_free(session: *mut AcpSessionOpaque) {
         if session.is_null() {
             return;
         }
-        // SAFETY: pointer is expected to originate from `acp_session_new`.
         unsafe { drop(Box::from_raw(session as *mut SessionHandle)) };
         clear_last_error();
     }));
@@ -216,9 +173,7 @@ pub extern "C" fn acp_session_set_local_signing_key(
     sk_len: u32,
 ) -> AcpResult {
     run_ffi(|| {
-        // SAFETY: validates pointers/lengths and only reads fixed-size input.
         let key = unsafe { read_fixed_32(sk, sk_len, "local signing key must be 32 bytes") }?;
-        // SAFETY: validates and converts opaque session pointer.
         let s = unsafe { session_from_ptr_mut(session) }?;
         s.set_local_signing_key(key)
     })
@@ -231,9 +186,7 @@ pub extern "C" fn acp_session_set_remote_verifying_key(
     pk_len: u32,
 ) -> AcpResult {
     run_ffi(|| {
-        // SAFETY: validates pointers/lengths and only reads fixed-size input.
         let key = unsafe { read_fixed_32(pk, pk_len, "remote verifying key must be 32 bytes") }?;
-        // SAFETY: validates and converts opaque session pointer.
         let s = unsafe { session_from_ptr_mut(session) }?;
         s.set_remote_verifying_key(key)
     })
@@ -246,13 +199,10 @@ pub extern "C" fn acp_handshake_initiate(
     out_len: *mut u32,
 ) -> AcpResult {
     run_ffi(|| {
-        // SAFETY: validates and converts opaque session pointer.
         let s = unsafe { session_from_ptr_mut(session) }?;
         let needed = s.preview_handshake_initiate_len()?;
-        // SAFETY: output pointers handled according to FFI contract.
         unsafe { ensure_output_capacity(out_payload, out_len, needed) }?;
         let payload = s.handshake_initiate()?;
-        // SAFETY: output pointers handled according to FFI contract.
         unsafe { write_output(out_payload, out_len, &payload) }
     })
 }
@@ -266,15 +216,11 @@ pub extern "C" fn acp_handshake_respond(
     out_len: *mut u32,
 ) -> AcpResult {
     run_ffi(|| {
-        // SAFETY: validates and converts opaque session pointer.
         let s = unsafe { session_from_ptr_mut(session) }?;
-        // SAFETY: validates input pointer/len and creates read-only slice.
         let input = unsafe { read_input(input, in_len) }?;
         let needed = s.preview_handshake_respond_len(input)?;
-        // SAFETY: output pointers handled according to FFI contract.
         unsafe { ensure_output_capacity(out, out_len, needed) }?;
         let payload = s.handshake_respond(input)?;
-        // SAFETY: output pointers handled according to FFI contract.
         unsafe { write_output(out, out_len, &payload) }
     })
 }
@@ -286,9 +232,7 @@ pub extern "C" fn acp_handshake_finalize(
     in_len: u32,
 ) -> AcpResult {
     run_ffi(|| {
-        // SAFETY: validates and converts opaque session pointer.
         let s = unsafe { session_from_ptr_mut(session) }?;
-        // SAFETY: validates input pointer/len and creates read-only slice.
         let input = unsafe { read_input(input, in_len) }?;
         s.handshake_finalize(input)
     })
@@ -303,15 +247,11 @@ pub extern "C" fn acp_encrypt(
     out_len: *mut u32,
 ) -> AcpResult {
     run_ffi(|| {
-        // SAFETY: validates and converts opaque session pointer.
         let s = unsafe { session_from_ptr_mut(session) }?;
-        // SAFETY: validates input pointer/len and creates read-only slice.
         let pt = unsafe { read_input(pt, pt_len) }?;
         let needed = s.preview_encrypt_len(pt.len())?;
-        // SAFETY: output pointers handled according to FFI contract.
         unsafe { ensure_output_capacity(out, out_len, needed) }?;
         let ct = s.encrypt(pt)?;
-        // SAFETY: output pointers handled according to FFI contract.
         unsafe { write_output(out, out_len, &ct) }
     })
 }
@@ -325,28 +265,15 @@ pub extern "C" fn acp_decrypt(
     out_len: *mut u32,
 ) -> AcpResult {
     run_ffi(|| {
-        // SAFETY: validates and converts opaque session pointer.
         let s = unsafe { session_from_ptr_mut(session) }?;
-        // SAFETY: validates input pointer/len and creates read-only slice.
         let ct = unsafe { read_input(ct, ct_len) }?;
         let needed = s.preview_decrypt_len(ct)?;
-        // SAFETY: output pointers handled according to FFI contract.
         unsafe { ensure_output_capacity(out, out_len, needed) }?;
         let pt = s.decrypt(ct)?;
-        // SAFETY: output pointers handled according to FFI contract.
         unsafe { write_output(out, out_len, &pt) }
     })
 }
 
-/// Retrieves the last error message from the current thread.
-///
-/// # Safety
-/// - `out_len` must be valid for reads and writes of a `u32`
-/// - `out` must be valid for writes of `*out_len` bytes if non-null
-///
-/// # Returns
-/// The error string is null-terminated. The `out_len` value includes the null byte.
-/// If the buffer is too small, `*out_len` is set to the required size (including null byte).
 #[unsafe(no_mangle)]
 pub extern "C" fn acp_last_error(out: *mut u8, out_len: *mut u32) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
@@ -358,16 +285,12 @@ pub extern "C" fn acp_last_error(out: *mut u8, out_len: *mut u32) {
         bytes.push(0);
         let required = u32::try_from(bytes.len()).unwrap_or(u32::MAX);
 
-        // SAFETY: out_len is non-null by check above.
         let capacity = unsafe { *out_len as usize };
         if out.is_null() || capacity < bytes.len() {
-            // SAFETY: out_len is non-null by check above.
             unsafe { *out_len = required };
             return;
         }
-        // SAFETY: destination has sufficient capacity and pointers are valid by contract.
         unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), out, bytes.len()) };
-        // SAFETY: out_len is non-null by check above.
         unsafe { *out_len = required };
     }));
 }

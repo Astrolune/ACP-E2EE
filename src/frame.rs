@@ -4,57 +4,32 @@ pub const ACP_VERSION: u8 = 1;
 pub const MSG_TYPE_DATA: u8 = 0x10;
 pub const NONCE_LEN: usize = 24;
 pub const MAC_LEN: usize = 16;
-// Point 5: AAD includes version, msg_type, counter, and payload_len.
-// Nonce is NOT included in AAD as it's passed separately to the AEAD cipher.
 pub const HEADER_LEN: usize = 1 + 1 + 8 + 4; // version + msg_type + counter + payload_len
 
-/// Point 7: Frame derives Clone for convenience in tests.
-/// In production code, Frame is not cloned in hot paths.
 #[derive(Debug, Clone)]
 pub struct Frame {
     pub version: u8,
     pub msg_type: u8,
     pub counter: u64,
     pub nonce: [u8; NONCE_LEN],
-    /// Point 4: payload_len is kept in sync with ciphertext.len() during construction.
-    /// This field exists for wire format compatibility and is validated during decode.
     pub payload_len: u32,
     pub ciphertext: Vec<u8>,
     pub mac: [u8; MAC_LEN],
 }
 
 impl Frame {
-    /// Returns the AAD (Additional Authenticated Data) for AEAD encryption.
-    /// Point 5: AAD contains header fields but NOT the nonce, as the nonce is
-    /// passed separately to the AEAD cipher (XChaCha20-Poly1305).
     pub fn aad_bytes(&self) -> [u8; HEADER_LEN] {
         let mut header = [0u8; HEADER_LEN];
         header[0] = self.version;
         header[1] = self.msg_type;
         header[2..10].copy_from_slice(&self.counter.to_le_bytes());
-        // payload_len is explicitly little-endian.
         header[10..14].copy_from_slice(&self.payload_len.to_le_bytes());
         header
     }
 
-    /// Encodes the frame to wire format.
-    /// Point 4: Uses ciphertext.len() to ensure payload_len is always in sync.
     pub fn encode(&self) -> Vec<u8> {
-        // Point 4: In debug builds, validate that payload_len matches ciphertext.len()
-        // This catches programming errors during development.
-        // Tests that intentionally create malformed frames will fail in debug mode,
-        // which is acceptable as they test the decode validation logic.
-        #[cfg(debug_assertions)]
-        if self.payload_len as usize != self.ciphertext.len() {
-            // Allow mismatch only in test code for testing decode validation
-            if !cfg!(test) {
-                panic!(
-                    "payload_len ({}) must match ciphertext.len() ({})",
-                    self.payload_len,
-                    self.ciphertext.len()
-                );
-            }
-        }
+        #[cfg(all(debug_assertions, not(test)))]
+        debug_assert_eq!(self.payload_len as usize, self.ciphertext.len());
 
         let mut out = Vec::with_capacity(HEADER_LEN + NONCE_LEN + self.ciphertext.len() + MAC_LEN);
         out.extend_from_slice(&self.aad_bytes());
@@ -75,14 +50,12 @@ impl Frame {
                 .try_into()
                 .map_err(|_| AcpError::parse_error("invalid counter bytes"))?,
         );
-        // payload_len is explicitly little-endian.
         let payload_len = u32::from_le_bytes(
             input[10..14]
                 .try_into()
                 .map_err(|_| AcpError::parse_error("invalid payload_len bytes"))?,
         );
 
-        // Point 6: Check for overflow when computing expected length
         let expected = HEADER_LEN
             .checked_add(NONCE_LEN)
             .and_then(|v| v.checked_add(payload_len as usize))
@@ -172,7 +145,6 @@ mod tests {
         assert_eq!(&encoded[10..14], &0x1122_3344u32.to_le_bytes());
     }
 
-    /// Point 8: Explicit test for little-endian decode of payload_len
     #[test]
     fn payload_len_le_decode() {
         let frame = Frame {
@@ -191,13 +163,11 @@ mod tests {
         assert_eq!(decoded.ciphertext, vec![0xAA, 0xBB]);
     }
 
-    /// Point 6: Test overflow protection in decode
     #[test]
     fn decode_rejects_overflow_payload_len() {
         let mut bad_frame = vec![0u8; HEADER_LEN + NONCE_LEN + MAC_LEN];
         bad_frame[0] = ACP_VERSION;
         bad_frame[1] = MSG_TYPE_DATA;
-        // Set payload_len to u32::MAX which will cause overflow
         bad_frame[10..14].copy_from_slice(&u32::MAX.to_le_bytes());
         let err = Frame::decode(&bad_frame).expect_err("should reject overflow");
         assert!(format!("{err}").contains("overflow") || format!("{err}").contains("mismatch"));

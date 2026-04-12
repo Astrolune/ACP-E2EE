@@ -12,7 +12,6 @@ use rand_core::{OsRng, RngCore};
 use x25519_dalek::{EphemeralSecret, PublicKey};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-/// Wrapper for encryption keys that ensures zeroization on drop.
 #[derive(Zeroize, ZeroizeOnDrop)]
 struct EncryptionKey([u8; 32]);
 
@@ -26,10 +25,8 @@ impl EncryptionKey {
     }
 }
 
-/// Type-state marker for handshake phase.
 pub struct Handshake;
 
-/// Type-state marker for established session phase.
 pub struct Established;
 
 #[derive(Zeroize, ZeroizeOnDrop)]
@@ -45,11 +42,6 @@ impl Secret32 {
     }
 }
 
-/// Session with type-state tracking.
-///
-/// Note: This uses both type-state pattern (PhantomData<S>) and runtime enum
-/// (SessionInner). The type-state provides compile-time guarantees for internal
-/// methods, while SessionInner enables runtime state transitions through SessionHandle.
 pub struct AcpSession<S> {
     inner: SessionInner,
     _marker: core::marker::PhantomData<S>,
@@ -84,20 +76,16 @@ struct EstablishedInner {
     ratchet: SymmetricRatchet,
 }
 
-pub enum SessionStateMachine {
+pub(crate) enum SessionStateMachine {
     Handshake(AcpSession<Handshake>),
     Established(AcpSession<Established>),
 }
 
-/// Wrapper for the session state machine.
-///
-/// Note: The `state` field is private to prevent external code from breaking
-/// state invariants. Use `state()` and `state_mut()` accessors if needed.
 pub struct SessionHandle {
     state: SessionStateMachine,
 }
 
-enum RespondOutcome {
+pub(crate) enum RespondOutcome {
     HandshakePayload(Vec<u8>),
     Established { payload: Vec<u8>, session: AcpSession<Established> },
 }
@@ -107,14 +95,6 @@ impl SessionHandle {
         Self {
             state: SessionStateMachine::Handshake(AcpSession::<Handshake>::new()),
         }
-    }
-
-    pub fn state(&self) -> &SessionStateMachine {
-        &self.state
-    }
-
-    pub fn state_mut(&mut self) -> &mut SessionStateMachine {
-        &mut self.state
     }
 
     pub fn set_local_signing_key(&mut self, key: [u8; 32]) -> Result<(), AcpError> {
@@ -144,15 +124,6 @@ impl SessionHandle {
         }
     }
 
-    /// Handles the second handshake leg for either role.
-    ///
-    /// Behavior by role/state:
-    /// - Responder in `Idle`: consumes `ClientHello` and returns `ServerHello`.
-    /// - Initiator in `InitiatorAwaitServer`: consumes `ServerHello`, derives keys,
-    ///   transitions to `Established`, and returns `ClientFinish`.
-    ///
-    /// Because the initiator final transition happens here, `handshake_finalize`
-    /// is only called by responders to verify `ClientFinish`.
     pub fn handshake_respond(&mut self, input: &[u8]) -> Result<Vec<u8>, AcpError> {
         match &mut self.state {
             SessionStateMachine::Handshake(s) => match s.respond(input)? {
@@ -250,10 +221,6 @@ impl SessionHandle {
 }
 
 impl AcpSession<Handshake> {
-    /// Creates a new handshake session.
-    ///
-    /// Note: AcpSession<Established> does not have a `new()` constructor;
-    /// it can only be created via `from_ratchet()` after successful handshake.
     fn new() -> Self {
         Self {
             inner: SessionInner::Handshake(HandshakeInner {
@@ -459,9 +426,6 @@ impl AcpSession<Handshake> {
 }
 
 impl AcpSession<Established> {
-    /// Creates an established session from a ratchet.
-    ///
-    /// This is the only way to construct AcpSession<Established>.
     fn from_ratchet(ratchet: SymmetricRatchet) -> Self {
         Self {
             inner: SessionInner::Established(EstablishedInner { ratchet }),
@@ -535,8 +499,6 @@ impl AcpSession<Established> {
     }
 }
 
-/// Verifies that the peer's signing key matches the configured remote key.
-/// Uses constant-time comparison to prevent timing attacks.
 fn ensure_remote_key(got: [u8; 32], expected: [u8; 32]) -> Result<(), AcpError> {
     use subtle::ConstantTimeEq;
     if got.ct_eq(&expected).into() {

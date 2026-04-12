@@ -16,16 +16,9 @@ pub enum AcpResult {
     Panic = 9,
 }
 
-/// ACP error type with support for both static and dynamic error messages.
-///
-/// Point 1: BufferTooSmall preserves the `needed` size for internal propagation.
-/// Point 2: Error messages use Cow<'static, str> to support both static and dynamic context.
-/// Point 3: External errors can be wrapped with source() support (currently unused but available).
 #[derive(Debug)]
 pub enum AcpError {
     InvalidArgument(Cow<'static, str>),
-    /// Buffer too small error. The usize indicates the required buffer size.
-    /// This information is preserved for internal Rust error propagation.
     BufferTooSmall(usize),
     InvalidState(Cow<'static, str>),
     ParseError(Cow<'static, str>),
@@ -49,8 +42,6 @@ impl AcpError {
         }
     }
 
-    /// Returns the required buffer size for BufferTooSmall errors.
-    /// This allows internal Rust code to propagate the size information.
     pub fn buffer_size_needed(&self) -> Option<usize> {
         match self {
             Self::BufferTooSmall(needed) => Some(*needed),
@@ -58,7 +49,6 @@ impl AcpError {
         }
     }
 
-    // Helper constructors for ergonomic error creation from &'static str
     pub fn invalid_argument(msg: impl Into<Cow<'static, str>>) -> Self {
         Self::InvalidArgument(msg.into())
     }
@@ -104,9 +94,6 @@ impl fmt::Display for AcpError {
 }
 
 impl std::error::Error for AcpError {
-    /// Point 3: source() implementation ready for wrapping external errors.
-    /// Currently returns None as all errors are leaf errors, but this can be
-    /// extended in the future to wrap errors from ed25519_dalek, chacha20poly1305, etc.
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         None
     }

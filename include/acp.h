@@ -3,7 +3,6 @@
 
 #include <stdint.h>
 
-// API version for compile-time compatibility checks
 #define ACP_API_VERSION 1
 
 #ifdef _WIN32

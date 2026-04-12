@@ -11,9 +11,6 @@ pub const ED25519_PUB_LEN: usize = 32;
 pub const ED25519_SIG_LEN: usize = 64;
 pub const FINISH_LEN: usize = 32;
 
-/// Point 14: Separate constants for CLIENT_HELLO and SERVER_HELLO lengths.
-/// Currently they are the same, but having separate constants allows the formats
-/// to diverge in future protocol versions without breaking existing code.
 pub const CLIENT_HELLO_LEN: usize = 1 + 1 + X25519_PUB_LEN + ED25519_PUB_LEN + ED25519_SIG_LEN;
 pub const SERVER_HELLO_LEN: usize = 1 + 1 + X25519_PUB_LEN + ED25519_PUB_LEN + ED25519_SIG_LEN;
 pub const CLIENT_FINISH_LEN: usize = 1 + 1 + FINISH_LEN;
@@ -25,9 +22,6 @@ pub struct HelloMessage {
     pub signature: [u8; 64],
 }
 
-/// Point 9: build_client_hello calls SigningKey::from_bytes on each invocation.
-/// This is acceptable for handshake operations which occur once per session.
-/// The performance cost is negligible compared to the X25519 key exchange.
 pub fn build_client_hello(
     client_ephemeral_pub: [u8; 32],
     signing_secret: &[u8; 32],
@@ -79,9 +73,6 @@ pub fn parse_server_hello(input: &[u8]) -> Result<HelloMessage, AcpError> {
     parse_hello(input, MSG_TYPE_SERVER_HELLO, SERVER_HELLO_LEN)
 }
 
-/// Point 14: Now accepts expected_len parameter to use CLIENT_HELLO_LEN or SERVER_HELLO_LEN.
-/// Point 15: The msg_type is validated but not returned in HelloMessage. For diagnostics,
-/// callers already know which type they're parsing based on which function they called.
 fn parse_hello(input: &[u8], expected_msg_type: u8, expected_len: usize) -> Result<HelloMessage, AcpError> {
     if input.len() != expected_len {
         return Err(AcpError::parse_error("invalid hello length"));
@@ -108,10 +99,6 @@ fn parse_hello(input: &[u8], expected_msg_type: u8, expected_len: usize) -> Resu
     })
 }
 
-/// Point 16: verify_client_hello verifies that the signature is valid for the given
-/// signer_pub. This is a self-signed verification - any party can generate a valid
-/// ClientHello with their own key. The actual authentication happens in session.rs
-/// via ensure_remote_key(), which checks that signer_pub matches the expected remote key.
 pub fn verify_client_hello(hello: &HelloMessage) -> Result<(), AcpError> {
     verify_signature(
         hello.signer_pub,
@@ -150,10 +137,6 @@ fn verify_signature(
         .map_err(|_| AcpError::verify_failed("invalid ed25519 signature"))
 }
 
-/// Point 11: Computes the transcript hash from ClientHello and ServerHello bytes.
-/// CRITICAL: The argument order matters - client_hello_bytes MUST come first,
-/// server_hello_bytes MUST come second. Reversing the order produces a different hash
-/// and will cause handshake verification to fail.
 pub fn transcript_hash(client_hello_bytes: &[u8], server_hello_bytes: &[u8]) -> [u8; 32] {
     let mut input = Vec::with_capacity(client_hello_bytes.len() + server_hello_bytes.len());
     input.extend_from_slice(client_hello_bytes);
@@ -195,11 +178,6 @@ pub fn parse_client_finish(input: &[u8]) -> Result<[u8; 32], AcpError> {
         .map_err(|_| AcpError::parse_error("invalid confirmation bytes"))
 }
 
-/// Point 13: finish_confirmation derives a confirmation value from session_key and transcript_hash.
-/// Note that session_key itself is derived from root_key, which is derived from shared_secret
-/// and transcript_hash. This means the confirmation transitively depends on transcript_hash twice:
-/// once through session_key, and once directly. This is intentional redundancy for defense in depth,
-/// ensuring the confirmation binds to both the session key derivation and the handshake transcript.
 pub fn finish_confirmation(session_key: [u8; 32], transcript_hash: [u8; 32]) -> [u8; 32] {
     let mut input = Vec::with_capacity(64);
     input.extend_from_slice(&session_key);
@@ -207,10 +185,6 @@ pub fn finish_confirmation(session_key: [u8; 32], transcript_hash: [u8; 32]) -> 
     blake3::derive_key("acp/v1/finish", &input)
 }
 
-/// Point 10: sig_input vectors contain only public keys (ephemeral and signer public keys).
-/// These are not secret, so zeroization is not strictly necessary. However, for consistency
-/// with the rest of the codebase where all key material is zeroized, we could consider
-/// zeroizing these vectors. Currently they are not zeroized as they don't contain secrets.
 fn client_hello_sig_input(client_ephemeral_pub: [u8; 32], client_signer_pub: [u8; 32]) -> Vec<u8> {
     let mut input = Vec::with_capacity("ACPv1/clienthello".len() + 64);
     input.extend_from_slice(b"ACPv1/clienthello");
