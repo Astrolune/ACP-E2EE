@@ -5,13 +5,13 @@
 
 [![Rust](https://img.shields.io/crates/v/acp.svg)](https://crates.io/crates/acp)
 [![Docs](https://docs.rs/acp/badge.svg)](https://docs.rs/acp)
-[![Build status](https://github.com/astrolune/acp/actions/workflows/build.yml/badge.svg)](https://github.com/astrolune/acp/actions/workflows/build.yml)
+[![Build status](https://github.com/astrolune/acp/actions/workflows/ci.yml/badge.svg)](https://github.com/astrolune/acp/actions/workflows/ci.yml)
 [![Windows](https://img.shields.io/badge/platform-Windows-blue?logo=windows)](https://www.microsoft.com/windows)
 [![License](https://img.shields.io/badge/license-MIT%2FApache2-blue)](LICENSE)
 
 # **ACP – Astrolune Cipher Protocol**
 
-**ACP** — безопасный протокол обмена сообщениями на **Rust**, собранный в нативную Windows DLL (`cdylib`) для вызова из C#, C и C++.
+**ACP** is a secure messaging protocol implemented in **Rust**, packaged as a native Windows DLL (`cdylib`) for use from C#, C, and C++.
 
 ---
 
@@ -21,7 +21,7 @@
 - **XChaCha20-Poly1305** AEAD (`chacha20poly1305`)
 - **BLAKE3** KDF + symmetric ratchet (`blake3`)
 - **Ed25519** handshake signatures (`ed25519-dalek`)
-- **Zeroization** ключей (`zeroize`)
+- **Zeroization** of key material (`zeroize`)
 
 ### Handshake (3 messages)
 
@@ -51,7 +51,7 @@ transcript_hash = BLAKE3_derive_key("acp/v1/transcript", ClientHello_bytes || Se
 - `payload_len` – little‑endian
 
 > [!NOTE]
-> Первый допустимый inbound счётчик = `1`. Сообщение принимается **только** если `counter == last_seen + 1`.
+> The first valid inbound counter is `1`. A message is accepted **only** if `counter == last_seen + 1`.
 
 ---
 
