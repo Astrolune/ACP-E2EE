@@ -1,152 +1,161 @@
-# 🔐 ACP – Astrolune Cipher Protocol
+<p align="center">
+  <a href="https://github.com/astrolune/acp">
+  </a>
+</p>
 
-[![Rust](https://img.shields.io/badge/rust-1.70%2B-orange?logo=rust)](https://www.rust-lang.org)
+[![Rust](https://img.shields.io/crates/v/acp.svg)](https://crates.io/crates/acp)
+[![Docs](https://docs.rs/acp/badge.svg)](https://docs.rs/acp)
+[![Build status](https://github.com/astrolune/acp/actions/workflows/build.yml/badge.svg)](https://github.com/astrolune/acp/actions/workflows/build.yml)
 [![Windows](https://img.shields.io/badge/platform-Windows-blue?logo=windows)](https://www.microsoft.com/windows)
 [![License](https://img.shields.io/badge/license-MIT%2FApache2-blue)](LICENSE)
-[![Build](https://img.shields.io/badge/build-passing-brightgreen?logo=githubactions)](https://github.com/astrolune/acp/actions)
 
-**ACP** — реализация протокола безопасного обмена сообщениями на **Rust**, собранная в нативную Windows DLL (`cdylib`) для вызова из **C#**, **C** и **C++**.
+# **ACP – Astrolune Cipher Protocol**
 
----
-
-## 📦 Компоненты
-
-| Криптография            | Крейт                  |
-|------------------------|------------------------|
-| X25519 key exchange    | `x25519-dalek`         |
-| XChaCha20-Poly1305     | `chacha20poly1305`     |
-| BLAKE3 (KDF + ratchet) | `blake3`               |
-| Ed25519 подписи        | `ed25519-dalek`        |
-| Zeroization ключей     | `zeroize`              |
-
-> ✅ **Без OpenSSL, без ring, без NIST-кривых** — только современные алгоритмы.
+**ACP** — безопасный протокол обмена сообщениями на **Rust**, собранный в нативную Windows DLL (`cdylib`) для вызова из C#, C и C++.
 
 ---
 
-## 📡 Протокол (ACP v1)
+## Protocol overview
 
-### Рукопожатие (3 сообщения)
+- **X25519** key exchange (`x25519-dalek`)
+- **XChaCha20-Poly1305** AEAD (`chacha20poly1305`)
+- **BLAKE3** KDF + symmetric ratchet (`blake3`)
+- **Ed25519** handshake signatures (`ed25519-dalek`)
+- **Zeroization** ключей (`zeroize`)
+
+### Handshake (3 messages)
 
 1. `ClientHello`
 2. `ServerHello`
 3. `ClientFinish`
 
-**ClientFinish** содержит:
+`ClientFinish` carries:
 
 ```
 confirmation(32) = BLAKE3_derive_key("acp/v1/finish", session_key || transcript_hash)
 ```
 
-Где `transcript_hash`:
+`transcript_hash`:
 
 ```
 transcript_hash = BLAKE3_derive_key("acp/v1/transcript", ClientHello_bytes || ServerHello_bytes)
 ```
 
-### Формат кадра данных
+### Data frame format
 
 ```
 [ version:u8 | msg_type:u8 | counter:u64 | nonce:24B | payload_len:u32 | ciphertext | mac:16B ]
 ```
 
-- `counter` – little‑endian  
-- `payload_len` – little‑endian  
+- `counter` – little‑endian
+- `payload_len` – little‑endian
 
-<div style="background: #f0f4ff; border-left: 5px solid #1e88e5; padding: 12px 16px; margin: 16px 0;">
-  <strong>📘 NOTE</strong><br>
-  Первый допустимый inbound счётчик = <code>1</code>. Сообщение принимается <strong>только</strong> если <code>counter == last_seen + 1</code>.
-</div>
+> [!NOTE]
+> Первый допустимый inbound счётчик = `1`. Сообщение принимается **только** если `counter == last_seen + 1`.
 
 ---
 
-## 🧩 FFI API (DLL exports)
+## FFI API
 
-| Функция | Описание |
-|---------|----------|
-| `acp_session_new` | создать сессию |
-| `acp_session_free` | уничтожить сессию |
-| `acp_handshake_initiate` | инициатор: сгенерировать ClientHello |
-| `acp_handshake_respond` | ответчик: ClientHello → ServerHello |
-| `acp_handshake_finalize` | инициатор: ServerHello → ClientFinish |
-| `acp_encrypt` | зашифровать кадр |
-| `acp_decrypt` | расшифровать кадр |
-| `acp_last_error` | текст последней ошибки |
+| Function | Description |
+|----------|-------------|
+| `acp_session_new` | create session |
+| `acp_session_free` | destroy session |
+| `acp_handshake_initiate` | initiator: generate ClientHello |
+| `acp_handshake_respond` | responder: ClientHello → ServerHello |
+| `acp_handshake_finalize` | initiator: ServerHello → ClientFinish |
+| `acp_encrypt` | encrypt frame |
+| `acp_decrypt` | decrypt frame |
+| `acp_last_error` | last error message |
 
-### Управление ключами (опционально)
+Optional key provisioning:
 
-- `acp_session_set_local_signing_key`  
+- `acp_session_set_local_signing_key`
 - `acp_session_set_remote_verifying_key`
 
-### Контракт буферов
+### Buffer contract (two‑call pattern)
 
-**Двухшаговый вызов** (аналогично Windows API):  
+1. Call with `NULL` / small buffer → returns `ACP_RESULT_BUFFER_TOO_SMALL`, required size in `out_len`.
+2. Allocate buffer of that size and call again.
 
-1. Вызвать с `NULL` / маленьким буфером → возвращается `ACP_RESULT_BUFFER_TOO_SMALL`, в `out_len` — требуемый размер.  
-2. Выделить буфер нужного размера и повторить вызов.
+> [!WARNING]
+> Never ignore `ACP_RESULT_BUFFER_TOO_SMALL` – it can lead to buffer overflow and undefined behavior.
 
-<div style="background: #fff3e0; border-left: 5px solid #ffa000; padding: 12px 16px; margin: 16px 0;">
-  <strong>⚠️ WARNING</strong><br>
-  Никогда не игнорируйте код <code>ACP_RESULT_BUFFER_TOO_SMALL</code> — это может привести к переполнению буфера и неопределённому поведению.
-</div>
+### Handshake call semantics
 
-### Семантика handshake
+- **Initiator**:  
+  `acp_handshake_initiate` → `ClientHello`  
+  → `acp_handshake_respond(ServerHello)` → `ClientFinish` → session established
 
-- **Инициатор**:  
-  `acp_handshake_initiate` → получить `ClientHello`  
-  → передать `ServerHello` в `acp_handshake_respond` → получить `ClientFinish` и **сессия established**
-
-- **Ответчик**:  
-  `acp_handshake_respond(ClientHello)` → получить `ServerHello`  
-  → передать `ClientFinish` в `acp_handshake_finalize` → **сессия established**
+- **Responder**:  
+  `acp_handshake_respond(ClientHello)` → `ServerHello`  
+  → `acp_handshake_finalize(ClientFinish)` → session established
 
 ---
 
-## 🛠️ Сборка
+## Building
 
-### Требования
+### 1. Install rustc, cargo and rustfmt.
 
-- Rust 1.70+ (через [rustup](https://rustup.rs/))
-- Целевая платформа: `x86_64-pc-windows-msvc` (или `gnu`)
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
+rustup component add rustfmt
+```
 
-### Команды
+The `rust-toolchain.toml` file pins a specific rust version.  
+On Windows, ensure you have the **MSVC toolchain** (Visual Studio Build Tools).
+
+### 2. Download the source code.
+
+```bash
+git clone https://github.com/astrolune/acp.git
+cd acp
+```
+
+### 3. Build the DLL.
 
 ```bash
 cargo build --release
 ```
 
-**Результат:** `target/release/acp.dll`
+The Windows DLL will be placed at:
 
-<div style="background: #e8f5e9; border-left: 5px solid #43a047; padding: 12px 16px; margin: 16px 0;">
-  <strong>💡 TIP</strong><br>
-  Для минимизации размера DLL добавьте в <code>Cargo.toml</code>:
-  <pre><code>[profile.release]
-lto = true
-strip = true
-opt-level = "z"</code></pre>
-</div>
+```
+target/release/acp.dll
+```
 
-<div style="background: #ffebee; border-left: 5px solid #e53935; padding: 12px 16px; margin: 16px 0;">
-  <strong>❌ ERROR</strong><br>
-  Паники в Rust перехватываются на границе FFI. Вместо краша функция вернёт <code>ACP_RESULT_PANIC</code>, а текст ошибки можно получить через <code>acp_last_error</code>.
-</div>
+> [!TIP]
+> To minimize DLL size, add to `Cargo.toml`:
+> ```toml
+> [profile.release]
+> lto = true
+> strip = true
+> opt-level = "z"
+> ```
+
+> [!CAUTION]
+> Debug builds (`cargo build`) are **not suitable for production** – they are slow and may leak timing information. Always use `--release` for real deployments.
 
 ---
 
-## 🧪 Тестирование
+## Testing
+
+Run the full test suite:
 
 ```bash
 cargo test
 ```
 
-Тесты покрывают:
+Tests cover:
 
-- полный цикл handshake + шифрование/расшифровка  
-- отклонение replay и out‑of‑order сообщений  
-- проверку буферного контракта FFI
+- Handshake + encryption/decryption roundtrip
+- Replay and out‑of‑order rejection
+- FFI buffer contract validation
 
 ---
 
-## 🔌 Примеры вызова
+## Usage examples
 
 ### C# (P/Invoke)
 
@@ -154,10 +163,10 @@ cargo test
 using var session = AcpInterop.NewSession();
 AcpInterop.SetLocalSigningKey(session, privateKey);
 byte[] clientHello = AcpInterop.HandshakeInitiate(session);
-// отправить clientHello, получить serverHello...
+// send clientHello, receive serverHello...
 ```
 
-Готовый враппер: [`interop/AcpInterop.cs`](interop/AcpInterop.cs)
+Full wrapper: [`interop/AcpInterop.cs`](interop/AcpInterop.cs)
 
 ### C / C++
 
@@ -175,13 +184,14 @@ acp_session_free(sess);
 
 ---
 
-## 🔒 Безопасность
+## Security notes
 
-- Все ключевые материалы автоматически обнуляются при `Drop` (через `zeroize`).  
-- Нет зависимостей от OpenSSL — только pure Rust криптография.  
-- На стороне C/C++ после использования чувствительных данных вызывайте `SecureZeroMemory`.
+- No OpenSSL, no `ring`, no NIST curves – only modern pure‑Rust crypto.
+- Key material is zeroized on `Drop` (`zeroize`).
+- Panics are caught at FFI boundary – `ACP_RESULT_PANIC` + `acp_last_error`.
 
-<div style="background: #f0f4ff; border-left: 5px solid #1e88e5; padding: 12px 16px; margin: 16px 0;">
-  <strong>📘 NOTE</strong><br>
-  Сообщения об уязвимостях направляйте в соответствии с <a href="SECURITY.md">SECURITY.md</a>.
-</div>
+> [!IMPORTANT]
+> On the C/C++ side, always call `SecureZeroMemory` on sensitive buffers after use.
+
+> [!NOTE]
+> Report vulnerabilities according to [SECURITY.md](SECURITY.md).
