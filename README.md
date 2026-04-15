@@ -1,33 +1,29 @@
-# 🔐 ACP (Astrolune Cipher Protocol)
+# 🔐 ACP – Astrolune Cipher Protocol
 
-[![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org)
-[![Windows](https://img.shields.io/badge/platform-Windows-blue.svg)](https://www.microsoft.com/windows)
-[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](LICENSE)
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/your-org/acp/actions)
+[![Rust](https://img.shields.io/badge/rust-1.70%2B-orange?logo=rust)](https://www.rust-lang.org)
+[![Windows](https://img.shields.io/badge/platform-Windows-blue?logo=windows)](https://www.microsoft.com/windows)
+[![License](https://img.shields.io/badge/license-MIT%2FApache2-blue)](LICENSE)
+[![Build](https://img.shields.io/badge/build-passing-brightgreen?logo=githubactions)](https://github.com/astrolune/acp/actions)
 
-**ACP** – надёжная реализация протокола безопасного обмена сообщениями на **Rust**, собранная в нативную Windows DLL (`cdylib`) для использования из:
-- **C#** (P/Invoke)
-- **C/C++** (`LoadLibrary` + `#include <acp.h>`)
+**ACP** — реализация протокола безопасного обмена сообщениями на **Rust**, собранная в нативную Windows DLL (`cdylib`) для вызова из **C#**, **C** и **C++**.
 
 ---
 
-## 📦 Текущий статус
+## 📦 Компоненты
 
-Ветка `main` реализует **ACP v1** со следующими криптографическими примитивами:
+| Криптография            | Крейт                  |
+|------------------------|------------------------|
+| X25519 key exchange    | `x25519-dalek`         |
+| XChaCha20-Poly1305     | `chacha20poly1305`     |
+| BLAKE3 (KDF + ratchet) | `blake3`               |
+| Ed25519 подписи        | `ed25519-dalek`        |
+| Zeroization ключей     | `zeroize`              |
 
-| Компонент               | Крейт                 |
-|-------------------------|-----------------------|
-| X25519 key exchange     | `x25519-dalek`        |
-| XChaCha20-Poly1305 AEAD | `chacha20poly1305`    |
-| BLAKE3 KDF + ratchet    | `blake3`              |
-| Ed25519 handshake signatures | `ed25519-dalek`  |
-| Zeroization ключей      | `zeroize`             |
-
-> ✅ **Протокол не использует** `ring`, OpenSSL или NIST-кривые — только современные, безопасные алгоритмы.
+> ✅ **Без OpenSSL, без ring, без NIST-кривых** — только современные алгоритмы.
 
 ---
 
-## 📖 Обзор протокола
+## 📡 Протокол (ACP v1)
 
 ### Рукопожатие (3 сообщения)
 
@@ -35,7 +31,7 @@
 2. `ServerHello`
 3. `ClientFinish`
 
-Поле `confirmation` в `ClientFinish` вычисляется как:
+**ClientFinish** содержит:
 
 ```
 confirmation(32) = BLAKE3_derive_key("acp/v1/finish", session_key || transcript_hash)
@@ -49,56 +45,59 @@ transcript_hash = BLAKE3_derive_key("acp/v1/transcript", ClientHello_bytes || Se
 
 ### Формат кадра данных
 
-**Wire layout**:
-
 ```
 [ version:u8 | msg_type:u8 | counter:u64 | nonce:24B | payload_len:u32 | ciphertext | mac:16B ]
 ```
 
-- `counter` – **little-endian**
-- `payload_len` – **little-endian**
+- `counter` – little‑endian  
+- `payload_len` – little‑endian  
 
-> 🧠 **Политика защиты от повторов (replay)**  
-> Первый допустимый inbound счётчик = `1`.  
-> Сообщение принимается **только если** `counter == last_seen + 1`.
+<div style="background: #f0f4ff; border-left: 5px solid #1e88e5; padding: 12px 16px; margin: 16px 0;">
+  <strong>📘 NOTE</strong><br>
+  Первый допустимый inbound счётчик = <code>1</code>. Сообщение принимается <strong>только</strong> если <code>counter == last_seen + 1</code>.
+</div>
 
 ---
 
-## 🚀 FFI API
+## 🧩 FFI API (DLL exports)
 
-### Экспортируемые функции
-
-| Функция | Назначение |
-|---------|------------|
-| `acp_session_new` | Создать сессию |
-| `acp_session_free` | Уничтожить сессию |
-| `acp_handshake_initiate` | Инициатор: сгенерировать ClientHello |
-| `acp_handshake_respond` | Ответчик: обработать ClientHello → ServerHello |
-| `acp_handshake_finalize` | Инициатор: обработать ServerHello → ClientFinish |
-| `acp_encrypt` | Зашифровать кадр |
-| `acp_decrypt` | Расшифровать кадр |
-| `acp_last_error` | Получить последнюю ошибку |
+| Функция | Описание |
+|---------|----------|
+| `acp_session_new` | создать сессию |
+| `acp_session_free` | уничтожить сессию |
+| `acp_handshake_initiate` | инициатор: сгенерировать ClientHello |
+| `acp_handshake_respond` | ответчик: ClientHello → ServerHello |
+| `acp_handshake_finalize` | инициатор: ServerHello → ClientFinish |
+| `acp_encrypt` | зашифровать кадр |
+| `acp_decrypt` | расшифровать кадр |
+| `acp_last_error` | текст последней ошибки |
 
 ### Управление ключами (опционально)
 
-- `acp_session_set_local_signing_key` – установить локальный ключ подписи Ed25519
-- `acp_session_set_remote_verifying_key` – установить удалённый verifying key
+- `acp_session_set_local_signing_key`  
+- `acp_session_set_remote_verifying_key`
 
 ### Контракт буферов
 
-**Двухшаговый вызов** (как в Windows API):
-1. Вызвать с `NULL` / маленьким буфером → получаете `ACP_RESULT_BUFFER_TOO_SMALL` и требуемый размер в `out_len`.
-2. Выделить буфер нужного размера и вызвать снова.
+**Двухшаговый вызов** (аналогично Windows API):  
 
-### Семантика Handshake
+1. Вызвать с `NULL` / маленьким буфером → возвращается `ACP_RESULT_BUFFER_TOO_SMALL`, в `out_len` — требуемый размер.  
+2. Выделить буфер нужного размера и повторить вызов.
+
+<div style="background: #fff3e0; border-left: 5px solid #ffa000; padding: 12px 16px; margin: 16px 0;">
+  <strong>⚠️ WARNING</strong><br>
+  Никогда не игнорируйте код <code>ACP_RESULT_BUFFER_TOO_SMALL</code> — это может привести к переполнению буфера и неопределённому поведению.
+</div>
+
+### Семантика handshake
 
 - **Инициатор**:  
   `acp_handshake_initiate` → получить `ClientHello`  
-  → `acp_handshake_respond(ServerHello)` → получить `ClientFinish` и **перейти в established**
+  → передать `ServerHello` в `acp_handshake_respond` → получить `ClientFinish` и **сессия established**
 
 - **Ответчик**:  
   `acp_handshake_respond(ClientHello)` → получить `ServerHello`  
-  → `acp_handshake_finalize(ClientFinish)` → **завершить установку**
+  → передать `ClientFinish` в `acp_handshake_finalize` → **сессия established**
 
 ---
 
@@ -106,52 +105,30 @@ transcript_hash = BLAKE3_derive_key("acp/v1/transcript", ClientHello_bytes || Se
 
 ### Требования
 
-- Rust `1.70+` (установите через [rustup](https://rustup.rs/))
+- Rust 1.70+ (через [rustup](https://rustup.rs/))
 - Целевая платформа: `x86_64-pc-windows-msvc` (или `gnu`)
-- (Опционально) `cargo-make` для продвинутых сценариев
 
-### Команды сборки
+### Команды
 
 ```bash
-# Обычная сборка в DLL
 cargo build --release
-
-# Сборка с отладочной информацией
-cargo build
-
-# Сборка с дополнительными проверками (например, overflow checks)
-cargo build --profile release-with-debug
 ```
 
-### Результат
+**Результат:** `target/release/acp.dll`
 
-```
-target/release/acp.dll
-```
+<div style="background: #e8f5e9; border-left: 5px solid #43a047; padding: 12px 16px; margin: 16px 0;">
+  <strong>💡 TIP</strong><br>
+  Для минимизации размера DLL добавьте в <code>Cargo.toml</code>:
+  <pre><code>[profile.release]
+lto = true
+strip = true
+opt-level = "z"</code></pre>
+</div>
 
-> 💡 **Совет**: Для минимизации размера DLL добавьте в `Cargo.toml`:
-> ```toml
-> [profile.release]
-> lto = true
-> strip = true
-> opt-level = "z"
-> ```
-
----
-
-## ⚠️ Важные замечания
-
-> **Note**  
-> Все ключевые материалы автоматически обнуляются при удалении (`Drop`) благодаря `zeroize`. Это снижает риск утечки через память.
-
-> **Warning**  
-> **Не игнорируйте возвращаемый код `ACP_RESULT_BUFFER_TOO_SMALL`** – это может привести к переполнению буфера и неопределённому поведению.
-
-> **Error**  
-> Паники в Rust-коде **перехватываются** на границе FFI с помощью `catch_unwind`. Вместо паники функция вернёт `ACP_RESULT_PANIC`, а текст ошибки можно получить через `acp_last_error`.
-
-> **Important**  
-> Протокол требует строгой последовательности счётчиков. Любое отклонение (потеря, переупорядочивание, повтор) вызовет ошибку расшифровки.
+<div style="background: #ffebee; border-left: 5px solid #e53935; padding: 12px 16px; margin: 16px 0;">
+  <strong>❌ ERROR</strong><br>
+  Паники в Rust перехватываются на границе FFI. Вместо краша функция вернёт <code>ACP_RESULT_PANIC</code>, а текст ошибки можно получить через <code>acp_last_error</code>.
+</div>
 
 ---
 
@@ -162,13 +139,14 @@ cargo test
 ```
 
 Тесты покрывают:
-- Полный цикл handshake + шифрование/расшифровка
-- Отклонение replay и out-of-order сообщений
-- Проверку контракта буферов FFI
+
+- полный цикл handshake + шифрование/расшифровка  
+- отклонение replay и out‑of‑order сообщений  
+- проверку буферного контракта FFI
 
 ---
 
-## 🔌 Примеры использования
+## 🔌 Примеры вызова
 
 ### C# (P/Invoke)
 
@@ -176,16 +154,18 @@ cargo test
 using var session = AcpInterop.NewSession();
 AcpInterop.SetLocalSigningKey(session, privateKey);
 byte[] clientHello = AcpInterop.HandshakeInitiate(session);
-// ... отправка/получение ...
+// отправить clientHello, получить serverHello...
 ```
 
-Полный враппер находится в [`interop/AcpInterop.cs`](interop/AcpInterop.cs).
+Готовый враппер: [`interop/AcpInterop.cs`](interop/AcpInterop.cs)
 
 ### C / C++
 
 ```c
 #include "acp.h"
+
 acp_session_t* sess = acp_session_new();
+size_t size = 0;
 acp_handshake_initiate(sess, NULL, &size);
 uint8_t* buf = malloc(size);
 acp_handshake_initiate(sess, buf, &size);
@@ -195,19 +175,13 @@ acp_session_free(sess);
 
 ---
 
-## 🔒 Замечания по безопасности
+## 🔒 Безопасность
 
-- **Нет зависимостей от OpenSSL** – только pure Rust криптография.
-- **Все буферы** – вызывающий отвечает за их выделение и освобождение.
-- **Рекомендация**: после использования чувствительных данных вызывайте `SecureZeroMemory` (C++) или `Array.Clear` (C#).
+- Все ключевые материалы автоматически обнуляются при `Drop` (через `zeroize`).  
+- Нет зависимостей от OpenSSL — только pure Rust криптография.  
+- На стороне C/C++ после использования чувствительных данных вызывайте `SecureZeroMemory`.
 
----
-
-## 🤝 Вклад в проект
-
-Мы приветствуем pull request'ы. Перед внесением изменений:
-1. Убедитесь, что `cargo test` проходит.
-2. Обновите документацию (этот README).
-3. Для новых функций добавьте тесты.
-
-Сообщения об уязвимостях направляйте в соответствии с [SECURITY.md](SECURITY.md).
+<div style="background: #f0f4ff; border-left: 5px solid #1e88e5; padding: 12px 16px; margin: 16px 0;">
+  <strong>📘 NOTE</strong><br>
+  Сообщения об уязвимостях направляйте в соответствии с <a href="SECURITY.md">SECURITY.md</a>.
+</div>
