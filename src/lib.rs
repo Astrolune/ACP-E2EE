@@ -294,4 +294,3 @@ pub extern "C" fn acp_last_error(out: *mut u8, out_len: *mut u32) {
         unsafe { *out_len = required };
     }));
 }
-
