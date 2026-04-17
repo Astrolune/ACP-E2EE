@@ -12,24 +12,26 @@
 
 **ACP** is a secure messaging protocol implemented in **Rust**, packaged as a native Windows DLL (`cdylib`) for use from C#, C, and C++.
 
+---
+
 > [!CAUTION]
 > **EDUCATIONAL PURPOSE ONLY – USE AT YOUR OWN RISK**
 >
-> This project was created **solely for educational purposes** to demonstrate end-to-end encryption (E2EE) concepts. It is **not intended for production use**.
+> This project was created **solely for educational purposes** to demonstrate end‑to‑end encryption (E2EE) concepts. It is **not intended for production use** and may contain incomplete features, security flaws, or intentional simplifications.
 >
-> ### License & Permissions
-> This software is **not open-source** under standard permissive licenses. You **may not** use, copy, modify, distribute, or integrate any part of this project without **explicit written permission** from the authors. Unauthorized use is strictly prohibited.
+> ### License – MIT
+> This project is distributed under the **MIT License** (see the `LICENSE` file). You are free to use, modify, and distribute it, subject to the terms of the MIT License.
+>
+> ### No Warranty & Liability
+> THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 >
 > ### Legal Disclaimer – E2E Encryption Regulations
-> End-to-end encryption (E2EE) is subject to **varying legal regulations worldwide**. Depending on your country of residence or operation:
-> - You may be required to **register encryption software** with local authorities.
-> - Some governments **restrict or prohibit** the use of strong cryptography without backdoors.
-> - Export controls (e.g., Wassenaar Arrangement, EAR) may apply.
+> End‑to‑end encryption (E2EE) is **regulated differently across countries**. Depending on your jurisdiction:
+> - Some countries **require licenses, key escrow, or government backdoors**.
+> - Others **restrict or ban** the use of strong cryptography without prior authorisation.
+> - Export control laws (e.g., Wassenaar Arrangement, EU Dual‑Use Regulation, US EAR) may apply when you share or host this software.
 >
-> **You are solely responsible** for understanding and complying with all applicable laws in your jurisdiction. The authors assume **no liability** for any legal consequences arising from the use, distribution, or modification of this project.
->
-> ### No Warranty
-> THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO FITNESS FOR A PARTICULAR PURPOSE. THE ENTIRE RISK OF USE REMAINS WITH YOU.
+> **You are solely responsible** for understanding and complying with the laws of your country. The authors assume **no responsibility** for any legal consequences arising from the use, modification, or distribution of this project.
 
 ---
 
