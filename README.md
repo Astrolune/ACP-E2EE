@@ -5,7 +5,6 @@
 </p>
 
 [![Rust](https://img.shields.io/crates/v/acp.svg)](https://crates.io/crates/acp)
-[![Build status](https://github.com/astrolune/acp/actions/workflows/ci.yml/badge.svg)](https://github.com/astrolune/acp/actions/workflows/ci.yml)
 [![Windows](https://img.shields.io/badge/platform-Windows-blue?logo=windows)](https://www.microsoft.com/windows)
 
 # **ACP – Astrolune Cipher Protocol**
